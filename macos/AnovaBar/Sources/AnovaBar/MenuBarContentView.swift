@@ -2,74 +2,81 @@ import AppKit
 import SwiftUI
 
 struct MenuBarContentView: View {
+    enum UI {
+        static let width: CGFloat = 392
+        static let panelSpacing: CGFloat = 10
+        static let panelPadding: CGFloat = 12
+        static let rowLabelWidth: CGFloat = 54
+        static let unitPickerWidth: CGFloat = 118
+        static let accent = Color(red: 0.88, green: 0.43, blue: 0.14)
+        static let iconGradient = [
+            Color(red: 0.95, green: 0.60, blue: 0.14),
+            Color(red: 0.84, green: 0.43, blue: 0.08),
+        ]
+    }
+
     @ObservedObject var model: AppModel
     @State private var showingDeviceDetails = false
 
     var body: some View {
-        Group {
-            if model.connectedDevice == nil {
-                disconnectedBody
-            } else {
-                connectedBody
+        content
+            .frame(width: UI.width)
+            .alert("Bluetooth Error", isPresented: errorBinding) {
+                Button("OK", role: .cancel) {
+                    model.lastError = nil
+                }
+            } message: {
+                Text(model.lastError ?? "")
             }
-        }
-        .frame(width: 392)
-        .alert("Bluetooth Error", isPresented: errorBinding) {
-            Button("OK", role: .cancel) {
-                model.lastError = nil
+            .task {
+                await model.loadIfNeeded()
             }
-        } message: {
-            Text(model.lastError ?? "")
-        }
-        .task {
-            await model.loadIfNeeded()
+            .onChange(of: model.connectedDevice?.id) { newValue in
+                if newValue == nil {
+                    showingDeviceDetails = false
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+        if model.connectedDevice == nil {
+            disconnectedBody
+        } else {
+            connectedBody
         }
     }
 
     private var disconnectedBody: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: UI.panelSpacing) {
             compactHeader
             discoveryPanel
             footerRow
         }
-        .padding(12)
+        .padding(UI.panelPadding)
         .fixedSize(horizontal: false, vertical: true)
     }
 
+    @ViewBuilder
     private var connectedBody: some View {
-        Group {
-            if showingDeviceDetails {
-                deviceDetailsBody
-            } else {
-                VStack(alignment: .leading, spacing: 10) {
-                    identityPanel
-                    readingsPanel
-                    controlsPanel
-                    diagnosticsPanel
-                    footerRow
-                }
-                .padding(12)
-                .fixedSize(horizontal: false, vertical: true)
+        if showingDeviceDetails {
+            deviceDetailsBody
+        } else {
+            VStack(alignment: .leading, spacing: UI.panelSpacing) {
+                identityPanel
+                readingsPanel
+                controlsPanel
+                diagnosticsPanel
+                footerRow
             }
+            .padding(UI.panelPadding)
+            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
     private var compactHeader: some View {
-        HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 12, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(red: 0.95, green: 0.60, blue: 0.14), Color(red: 0.84, green: 0.43, blue: 0.08)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 34, height: 34)
-                .overlay {
-                    Image(systemName: model.menuBarIconName)
-                        .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
+        HStack(spacing: UI.panelSpacing) {
+            brandIcon(size: 34, symbolSize: 17)
 
             VStack(alignment: .leading, spacing: 2) {
                 Text("AnovaBar")
@@ -81,37 +88,24 @@ struct MenuBarContentView: View {
             }
 
             Spacer(minLength: 0)
-
-            if model.connectedDevice != nil {
-                Text("Live")
-                    .font(.system(size: 11, weight: .semibold))
-                    .padding(.horizontal, 7)
-                    .padding(.vertical, 3)
-                    .background(Color.white.opacity(0.08), in: Capsule())
-                    .foregroundStyle(.secondary)
-            }
         }
-        .padding(12)
+        .padding(UI.panelPadding)
         .panelBackground()
     }
 
     private var discoveryPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: UI.panelSpacing) {
             HStack(alignment: .firstTextBaseline) {
                 Text(model.devices.isEmpty ? "Nearby Minis" : "Choose a Mini")
-                    .font(.system(size: 13, weight: .semibold))
+                    .sectionTitle()
 
                 Spacer()
 
-                Button(model.isScanning ? "Scanning…" : "Scan") {
-                    Task {
-                        await model.scan()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.regular)
-                .tint(Color(red: 0.88, green: 0.43, blue: 0.14))
-                .disabled(model.isScanning || model.isBusy)
+                Button(model.isScanning ? "Scanning…" : "Scan", action: asyncAction(model.scan))
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.regular)
+                    .tint(UI.accent)
+                    .disabled(model.isScanning || model.isBusy)
             }
 
             if model.devices.isEmpty {
@@ -129,54 +123,31 @@ struct MenuBarContentView: View {
 
                     Spacer()
 
-                    Button("Connect") {
-                        Task {
-                            await model.connectSelectedDevice()
-                        }
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .tint(Color(red: 0.88, green: 0.43, blue: 0.14))
-                    .disabled(model.selectedDeviceID == nil || model.isBusy)
+                    Button("Connect", action: asyncAction(model.connectSelectedDevice))
+                        .buttonStyle(.borderedProminent)
+                        .controlSize(.regular)
+                        .tint(UI.accent)
+                        .disabled(model.selectedDeviceID == nil || model.isBusy)
                 }
             }
         }
-        .padding(12)
+        .padding(UI.panelPadding)
         .panelBackground()
     }
 
     private var identityPanel: some View {
-        HStack(spacing: 10) {
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(
-                    LinearGradient(
-                        colors: [Color(red: 0.95, green: 0.60, blue: 0.14), Color(red: 0.84, green: 0.43, blue: 0.08)],
-                        startPoint: .topLeading,
-                        endPoint: .bottomTrailing
-                    )
-                )
-                .frame(width: 28, height: 28)
-                .overlay {
-                    Image(systemName: model.menuBarIconName)
-                        .font(.system(size: 14, weight: .semibold))
-                        .foregroundStyle(.white)
-                }
+        HStack(spacing: UI.panelSpacing) {
+            brandIcon(size: 28, symbolSize: 14)
 
             Text(model.connectedDeviceTitle)
                 .font(.system(size: 15, weight: .semibold))
 
             Spacer(minLength: 0)
 
-            iconButton(systemName: "arrow.clockwise", help: "Refresh") {
-                Task {
-                    await model.refresh()
-                }
-            }
-
+            iconButton(systemName: "arrow.clockwise", help: "Refresh", action: asyncAction(model.refresh))
             iconButton(systemName: "slider.horizontal.3", help: "Device details and naming") {
                 showingDeviceDetails = true
             }
-
             iconButton(systemName: "power", help: "Disconnect") {
                 showingDeviceDetails = false
                 Task {
@@ -184,7 +155,7 @@ struct MenuBarContentView: View {
                 }
             }
         }
-        .padding(12)
+        .padding(UI.panelPadding)
         .panelBackground(
             colors: [
                 Color.white.opacity(0.07),
@@ -196,21 +167,21 @@ struct MenuBarContentView: View {
     private var readingsPanel: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text("Readings")
-                .font(.system(size: 13, weight: .semibold))
+                .sectionTitle()
 
-            valueRow(title: "Current", value: model.snapshot?.currentTemperatureDisplay ?? "Loading…")
+            valueRow(title: "Current", value: model.currentDisplayText)
             valueRow(title: "Target", value: model.targetDisplayText)
             valueRow(title: "Timer", value: model.timerDisplayText)
         }
-        .padding(12)
+        .padding(UI.panelPadding)
         .panelBackground()
     }
 
     private var controlsPanel: some View {
-        VStack(alignment: .leading, spacing: 10) {
+        VStack(alignment: .leading, spacing: UI.panelSpacing) {
             HStack {
                 Text("Controls")
-                    .font(.system(size: 13, weight: .semibold))
+                    .sectionTitle()
 
                 Spacer(minLength: 0)
 
@@ -236,117 +207,56 @@ struct MenuBarContentView: View {
                     }
                 }
                 .pickerStyle(.segmented)
-                .frame(width: 118)
+                .frame(width: UI.unitPickerWidth)
             }
 
-            HStack(spacing: 10) {
-                Text("Setpoint")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 54, alignment: .leading)
-
+            editableRow(label: "Setpoint") {
                 TextField("", text: $model.targetTemperatureText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .fieldStyle()
 
-                Button("Set") {
-                    Task {
-                        await model.applySetTemperature()
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .font(.system(size: 13, weight: .semibold))
+                Button("Set", action: asyncAction(model.applySetTemperature))
+                    .actionButton()
             }
 
-            HStack(spacing: 10) {
-                Text("Timer")
-                    .font(.system(size: 13))
-                    .foregroundStyle(.secondary)
-                    .frame(width: 54, alignment: .leading)
-
+            editableRow(label: "Timer") {
                 TextField("", text: $model.timerMinutesText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 7)
-                    .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .fieldStyle()
 
                 Text("min")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
 
-                Button("Set") {
-                    Task {
-                        await model.applyTimer()
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .font(.system(size: 13, weight: .semibold))
+                Button("Set", action: asyncAction(model.applyTimer))
+                    .actionButton()
             }
 
             HStack(spacing: 8) {
                 Spacer(minLength: 0)
 
-                Button("Stop") {
-                    Task {
-                        await model.stopCook()
-                    }
-                }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
-                .font(.system(size: 13, weight: .semibold))
+                Button("Stop", action: asyncAction(model.stopCook))
+                    .actionButton()
 
-                Button("Start Cook") {
-                    Task {
-                        await model.startCook()
-                    }
-                }
-                .buttonStyle(.borderedProminent)
-                .controlSize(.small)
-                .font(.system(size: 13, weight: .semibold))
-                .tint(Color(red: 0.88, green: 0.43, blue: 0.14))
+                Button(model.primaryCookActionTitle, action: asyncAction(model.primaryCookAction))
+                    .primaryActionButton()
             }
         }
         .disabled(model.isBusy)
-        .padding(12)
+        .padding(UI.panelPadding)
         .panelBackground()
     }
 
     private var diagnosticsPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
-            DisclosureGroup("System Info") {
-                ScrollView {
-                    Text(model.systemInfoText)
-                        .font(.system(size: 11, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 6)
-                }
-                .frame(maxHeight: 88)
-            }
+            diagnosticDisclosure("System Info", text: model.systemInfoText, maxHeight: 88)
 
             Divider()
                 .overlay(Color.white.opacity(0.06))
                 .padding(.vertical, 8)
 
-            DisclosureGroup("Raw Readings") {
-                ScrollView {
-                    Text(model.rawReadingsText)
-                        .font(.system(size: 11, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(.top, 6)
-                }
-                .frame(maxHeight: 96)
-            }
+            diagnosticDisclosure("Raw Readings", text: model.rawReadingsText, maxHeight: 96)
         }
         .font(.system(size: 13))
-        .padding(12)
+        .padding(UI.panelPadding)
         .panelBackground()
     }
 
@@ -389,19 +299,18 @@ struct MenuBarContentView: View {
             }
 
             renameRow
-
             footerRow
         }
-        .padding(12)
+        .padding(UI.panelPadding)
         .fixedSize(horizontal: false, vertical: true)
     }
 
     private var pickerRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: UI.panelSpacing) {
             Text("Device")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-                .frame(width: 54, alignment: .leading)
+                .frame(width: UI.rowLabelWidth, alignment: .leading)
 
             Picker(
                 "Device",
@@ -425,40 +334,34 @@ struct MenuBarContentView: View {
     }
 
     private var renameRow: some View {
-        HStack(spacing: 10) {
+        HStack(spacing: UI.panelSpacing) {
             Text("Name")
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-                .frame(width: 54, alignment: .leading)
+                .frame(width: UI.rowLabelWidth, alignment: .leading)
 
             TextField("Kitchen Mini", text: $model.aliasText)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .padding(.horizontal, 10)
-                .padding(.vertical, 7)
-                .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+                .fieldStyle()
 
             Button("Save") {
                 model.saveAlias()
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .actionButton()
 
             Button("Clear") {
                 model.clearAlias()
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .actionButton()
         }
         .disabled(model.selectedDeviceID == nil && model.connectedDevice == nil)
     }
 
     private func valueRow(title: String, value: String) -> some View {
-        HStack(alignment: .firstTextBaseline, spacing: 10) {
+        HStack(alignment: .firstTextBaseline, spacing: UI.panelSpacing) {
             Text(title)
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-                .frame(width: 54, alignment: .leading)
+                .frame(width: UI.rowLabelWidth, alignment: .leading)
 
             Text(value)
                 .font(.system(size: 13, weight: .semibold))
@@ -467,6 +370,17 @@ struct MenuBarContentView: View {
             Spacer(minLength: 0)
         }
         .padding(.vertical, 2)
+    }
+
+    private func editableRow<Content: View>(label: String, @ViewBuilder content: () -> Content) -> some View {
+        HStack(spacing: UI.panelSpacing) {
+            Text(label)
+                .font(.system(size: 13))
+                .foregroundStyle(.secondary)
+                .frame(width: UI.rowLabelWidth, alignment: .leading)
+
+            content()
+        }
     }
 
     private func detailRow(title: String, value: String) -> some View {
@@ -478,6 +392,36 @@ struct MenuBarContentView: View {
                 .font(.system(size: 13))
                 .textSelection(.enabled)
         }
+    }
+
+    private func diagnosticDisclosure(_ title: String, text: String, maxHeight: CGFloat) -> some View {
+        DisclosureGroup(title) {
+            ScrollView {
+                Text(text)
+                    .font(.system(size: 11, design: .monospaced))
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 6)
+            }
+            .frame(maxHeight: maxHeight)
+        }
+    }
+
+    private func brandIcon(size: CGFloat, symbolSize: CGFloat) -> some View {
+        RoundedRectangle(cornerRadius: size * 0.35, style: .continuous)
+            .fill(
+                LinearGradient(
+                    colors: UI.iconGradient,
+                    startPoint: .topLeading,
+                    endPoint: .bottomTrailing
+                )
+            )
+            .frame(width: size, height: size)
+            .overlay {
+                Image(systemName: model.menuBarIconName)
+                    .font(.system(size: symbolSize, weight: .semibold))
+                    .foregroundStyle(.white)
+            }
     }
 
     private func iconButton(systemName: String, help: String, action: @escaping () -> Void) -> some View {
@@ -501,6 +445,14 @@ struct MenuBarContentView: View {
             }
         )
     }
+
+    private func asyncAction(_ action: @escaping @MainActor () async -> Void) -> () -> Void {
+        {
+            Task {
+                await action()
+            }
+        }
+    }
 }
 
 private extension View {
@@ -519,5 +471,30 @@ private extension View {
                         .strokeBorder(Color.white.opacity(0.08), lineWidth: 1)
                 )
         )
+    }
+
+    func fieldStyle() -> some View {
+        textFieldStyle(.plain)
+            .font(.system(size: 13))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    func actionButton() -> some View {
+        buttonStyle(.bordered)
+            .controlSize(.small)
+            .font(.system(size: 13, weight: .semibold))
+    }
+
+    func primaryActionButton() -> some View {
+        buttonStyle(.borderedProminent)
+            .controlSize(.small)
+            .font(.system(size: 13, weight: .semibold))
+            .tint(MenuBarContentView.UI.accent)
+    }
+
+    func sectionTitle() -> some View {
+        font(.system(size: 13, weight: .semibold))
     }
 }

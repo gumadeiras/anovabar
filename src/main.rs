@@ -1,7 +1,7 @@
 use std::process::ExitCode;
 use std::time::Duration;
 
-use anova_cli::{
+use anovabar::{
     AnovaMini, AnovaNano, BleConnectOptions, DeviceStatus, DiscoveredDevice, MiniFullState,
     StartCookOptions, TemperatureUnit,
 };
@@ -10,7 +10,7 @@ use futures::future::BoxFuture;
 use serde_json::Value;
 
 #[derive(Debug, Parser)]
-#[command(name = "anova-cli")]
+#[command(name = "anovabar")]
 #[command(about = "Control supported Anova devices over BLE", version)]
 struct Cli {
     #[command(subcommand)]
@@ -169,14 +169,14 @@ async fn main() -> ExitCode {
     }
 }
 
-async fn run(cli: Cli) -> anova_cli::Result<()> {
+async fn run(cli: Cli) -> anovabar::Result<()> {
     match cli.command {
         TopLevelCommand::Nano(args) => run_nano(args).await,
         TopLevelCommand::Mini(args) => run_mini(args).await,
     }
 }
 
-async fn run_nano(args: NanoArgs) -> anova_cli::Result<()> {
+async fn run_nano(args: NanoArgs) -> anovabar::Result<()> {
     match args.command {
         NanoCommand::Scan(args) => {
             let devices = AnovaNano::discover(Duration::from_secs(args.scan_timeout)).await?;
@@ -311,7 +311,7 @@ async fn run_nano(args: NanoArgs) -> anova_cli::Result<()> {
     Ok(())
 }
 
-async fn run_mini(args: MiniArgs) -> anova_cli::Result<()> {
+async fn run_mini(args: MiniArgs) -> anovabar::Result<()> {
     match args.command {
         MiniCommand::Scan(args) => {
             let devices = AnovaMini::discover(Duration::from_secs(args.scan_timeout)).await?;
@@ -422,9 +422,9 @@ async fn run_mini(args: MiniArgs) -> anova_cli::Result<()> {
     Ok(())
 }
 
-async fn with_nano<F>(options: DeviceOptions, operation: F) -> anova_cli::Result<()>
+async fn with_nano<F>(options: DeviceOptions, operation: F) -> anovabar::Result<()>
 where
-    F: for<'a> FnOnce(&'a AnovaNano) -> BoxFuture<'a, anova_cli::Result<()>>,
+    F: for<'a> FnOnce(&'a AnovaNano) -> BoxFuture<'a, anovabar::Result<()>>,
 {
     let device = AnovaNano::connect(options.into_connect_options()).await?;
     let result = operation(&device).await;
@@ -439,9 +439,9 @@ where
     }
 }
 
-async fn with_mini<F>(options: DeviceOptions, operation: F) -> anova_cli::Result<()>
+async fn with_mini<F>(options: DeviceOptions, operation: F) -> anovabar::Result<()>
 where
-    F: for<'a> FnOnce(&'a AnovaMini) -> BoxFuture<'a, anova_cli::Result<()>>,
+    F: for<'a> FnOnce(&'a AnovaMini) -> BoxFuture<'a, anovabar::Result<()>>,
 {
     let device = AnovaMini::connect(options.into_connect_options()).await?;
     let result = operation(&device).await;

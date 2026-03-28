@@ -9,6 +9,7 @@ enum MiniBLEClientError: LocalizedError {
     case disconnected(String)
     case invalidPayload(String)
     case operationAlreadyInFlight(String)
+    case stateUnconfirmed(String)
 
     var errorDescription: String? {
         switch self {
@@ -26,6 +27,8 @@ enum MiniBLEClientError: LocalizedError {
             "The cooker returned invalid data: \(reason)"
         case .operationAlreadyInFlight(let operation):
             "Another Bluetooth \(operation) operation is already in flight."
+        case .stateUnconfirmed(let reason):
+            "The cooker did not reach the expected state: \(reason)"
         }
     }
 }
@@ -129,20 +132,6 @@ final class MiniBLEClient: NSObject {
 
     func systemInfo() async throws -> JSONDictionary {
         try await readJSON(for: MiniBLEUUIDs.systemInfo)
-    }
-
-    func setClockToNow() async throws {
-        let formatter = ISO8601DateFormatter()
-        formatter.formatOptions = [.withInternetDateTime]
-        formatter.timeZone = TimeZone(secondsFromGMT: 0)
-
-        try await writeJSON(
-            [
-                "currentTime": formatter.string(from: Date()),
-            ],
-            to: MiniBLEUUIDs.setClock,
-            expectsAcknowledgement: true
-        )
     }
 
     func setUnit(_ unit: MiniTemperatureUnit) async throws {

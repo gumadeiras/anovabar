@@ -1,12 +1,12 @@
 [package]
-name = "anova-cli"
+name = "anovabar"
 version = "0.1.0"
 edition = "2024"
 license = "MIT"
 publish = false
 
 [lib]
-name = "anova_cli"
+name = "anovabar"
 path = "src/lib.rs"
 
 [dependencies]

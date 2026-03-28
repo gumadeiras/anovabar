@@ -35,7 +35,6 @@ enum MiniBLEUUIDs {
     static let currentTemperature = CBUUID(string: "6FFDCA46-D6A8-4FB2-8FD9-C6330F1939E3")
     static let timer = CBUUID(string: "A2B179F8-944E-436F-A246-C66CAAF7061F")
     static let state = CBUUID(string: "54E53C60-367A-4783-A5C1-B1770C54142B")
-    static let setClock = CBUUID(string: "D8A89692-CAE8-4B74-96E3-0B99D3637793")
     static let systemInfo = CBUUID(string: "153C9432-7C83-4B88-9252-7588229D5473")
 
     static let requiredCharacteristics = [
@@ -43,7 +42,6 @@ enum MiniBLEUUIDs {
         currentTemperature,
         timer,
         state,
-        setClock,
         systemInfo,
     ]
 }
@@ -183,6 +181,41 @@ struct MiniSnapshot {
         return MiniDateParser.parse(raw)
     }
 
+    var timerMode: String? {
+        MiniJSON.string(in: timer, keys: ["mode", "state", "status", "timerState"])?.lowercased()
+    }
+
+    var timerHasRunningSignal: Bool {
+        let activeValues = ["cook", "cooking", "running", "active"]
+
+        if let timerMode, activeValues.contains(timerMode) {
+            return true
+        }
+
+        if timerStartedAt != nil {
+            return true
+        }
+
+        if let explicitRemaining = MiniJSON.int(
+            in: timer,
+            keys: [
+                "remaining",
+                "remainingTime",
+                "remainingSeconds",
+                "secondsRemaining",
+                "timer",
+                "timerSeconds",
+                "durationSeconds",
+                "countdownSeconds",
+                "cookTimeSeconds",
+            ]
+        ) {
+            return explicitRemaining > 0
+        }
+
+        return false
+    }
+
     var isCooking: Bool {
         let activeValues = ["cook", "cooking", "running", "active"]
 
@@ -191,7 +224,7 @@ struct MiniSnapshot {
             return true
         }
 
-        if let timerMode = MiniJSON.string(in: timer, keys: ["mode", "state", "status", "timerState"])?.lowercased(),
+        if let timerMode,
            activeValues.contains(timerMode) {
             return true
         }
