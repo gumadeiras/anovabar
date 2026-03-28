@@ -1,4 +1,6 @@
 /target/
+/dist/
+/macos/AnovaBar/.build/
 
 # Rust tool outputs
 **/*.rs.bk
