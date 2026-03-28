@@ -1,0 +1,10 @@
+/target/
+
+# Rust tool outputs
+**/*.rs.bk
+
+# Local scratch files
+/tmp/
+
+# macOS
+.DS_Store
