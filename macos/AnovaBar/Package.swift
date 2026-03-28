@@ -18,5 +18,10 @@ let package = Package(
             name: "AnovaBar",
             path: "Sources/AnovaBar"
         ),
+        .testTarget(
+            name: "AnovaBarTests",
+            dependencies: ["AnovaBar"],
+            path: "Tests/AnovaBarTests"
+        ),
     ]
 )

@@ -19,7 +19,6 @@ final class AppModel: ObservableObject {
     private enum CookTimerState {
         case none
         case staged(seconds: Int)
-        case paused(seconds: Int)
         case running(initialSeconds: Int, startedAt: Date)
         case stopped
     }
@@ -48,36 +47,12 @@ final class AppModel: ObservableObject {
                 return abs(snapshotTarget - targetTemperature) <= 0.2
 
             case .running(let targetTemperature, let timerSeconds, let temperatureUnit, let requireTimerRunningSignal):
-                guard snapshot.isCooking else {
-                    return false
-                }
-
-                if let temperatureUnit, snapshot.temperatureUnit != temperatureUnit {
-                    return false
-                }
-
-                if requireTimerRunningSignal, !snapshot.timerHasRunningSignal {
-                    return false
-                }
-
-                if let snapshotTarget = snapshot.targetTemperatureValue,
-                   abs(snapshotTarget - targetTemperature) > 0.2 {
-                    return false
-                }
-
-                if timerSeconds == 0 {
-                    return true
-                }
-
-                if let remaining = snapshot.timerSecondsValue {
-                    return remaining > 0 && remaining <= timerSeconds
-                }
-
-                if let initial = snapshot.timerInitialSeconds {
-                    return abs(initial - timerSeconds) <= 1
-                }
-
-                return false
+                return snapshot.matchesRunningCook(
+                    targetTemperature: targetTemperature,
+                    timerSeconds: timerSeconds,
+                    temperatureUnit: temperatureUnit,
+                    requireTimerRunningSignal: requireTimerRunningSignal
+                )
 
             case .stopped:
                 return !snapshot.isCooking
@@ -123,13 +98,15 @@ final class AppModel: ObservableObject {
     @Published private(set) var statusMessage = "Click Scan for Minis to discover a cooker."
     @Published private(set) var isBusy = false
     @Published private(set) var isScanning = false
+    @Published private(set) var bleTraceText = MiniDiagnosticsStore.emptyText
     @Published var targetTemperatureText = "60.0"
     @Published var timerMinutesText = "0"
     @Published var selectedUnit: MiniTemperatureUnit = .celsius
     @Published var aliasText = ""
     @Published var lastError: String?
 
-    private let client = MiniBLEClient()
+    private let diagnostics: MiniDiagnosticsStore
+    private let client: MiniBLEClient
     private let defaults = UserDefaults.standard
     private var didLoad = false
     private var pollTask: Task<Void, Never>?
@@ -144,12 +121,18 @@ final class AppModel: ObservableObject {
     @Published private var timerNow = Date()
 
     init() {
+        self.diagnostics = MiniDiagnosticsStore()
+        self.client = MiniBLEClient(diagnostics: diagnostics)
         self.deviceAliases = defaults.dictionary(forKey: Self.aliasStorageKey) as? [String: String] ?? [:]
         if let data = defaults.data(forKey: Self.cookStateStorageKey),
            let decoded = try? JSONDecoder().decode([String: PersistedCookState].self, from: data) {
             self.deviceCookState = decoded
         } else {
             self.deviceCookState = [:]
+        }
+        self.bleTraceText = diagnostics.renderedText
+        diagnostics.onChange = { [weak self] text in
+            self?.bleTraceText = text
         }
     }
 
@@ -193,9 +176,6 @@ final class AppModel: ObservableObject {
             return snapshot?.timerDisplay ?? "Unavailable"
         case .staged(let seconds):
             return MiniFormat.duration(seconds: seconds)
-        case .paused(let seconds):
-            let duration = seconds == 0 ? "∞" : MiniFormat.duration(seconds: seconds)
-            return "Paused · \(duration)"
         case .running(let initialSeconds, let startedAt):
             if initialSeconds == 0 {
                 return "∞"
@@ -229,15 +209,20 @@ final class AppModel: ObservableObject {
         return label(for: device)
     }
 
-    var primaryCookActionTitle: String {
-        switch cookTimerState {
-        case .running:
-            return "Pause"
-        case .paused:
-            return "Resume"
-        case .none, .staged, .stopped:
-            return "Start Cook"
+    var canStartCook: Bool {
+        if case .running = cookTimerState {
+            return false
         }
+
+        return true
+    }
+
+    var canStopCook: Bool {
+        if case .running = cookTimerState {
+            return true
+        }
+
+        return snapshot?.isCooking == true
     }
 
     func loadIfNeeded() async {
@@ -250,6 +235,7 @@ final class AppModel: ObservableObject {
     }
 
     func scan() async {
+        recordApp("scanRequested")
         guard !isScanning else {
             return
         }
@@ -287,17 +273,20 @@ final class AppModel: ObservableObject {
     }
 
     func connectSelectedDevice() async {
+        diagnostics.reset(.app, "connectRequested")
         await perform("Connecting…") { [self] in
             guard let selectedDeviceID = self.selectedDeviceID else {
                 throw MiniBLEClientError.noSelection
             }
 
             let device = try await self.client.connect(to: selectedDeviceID)
+            self.recordApp("connected", details: ["device": device.displayName])
             self.connectedDevice = device
             self.restoreCookState(for: device)
             self.syncAliasDraft()
             self.statusMessage = "Connected to \(self.label(for: device))."
 
+            try await self.client.setClockToUTCNow()
             self.systemInfo = try await self.client.systemInfo()
             try await self.refreshSnapshot()
             self.startPolling()
@@ -306,6 +295,7 @@ final class AppModel: ObservableObject {
     }
 
     func disconnect() async {
+        recordApp("disconnectRequested")
         stopPolling()
         stopClock()
         client.disconnect()
@@ -341,6 +331,7 @@ final class AppModel: ObservableObject {
     }
 
     func refresh() async {
+        recordApp("refreshRequested")
         await perform("Refreshing…") { [self] in
             try await self.refreshSnapshot()
             self.systemInfo = try await self.client.systemInfo()
@@ -355,6 +346,7 @@ final class AppModel: ObservableObject {
         isUnitChangeInFlight = true
 
         await perform("Updating temperature unit…") { [self] in
+            self.recordApp("setUnit", details: ["unit": unit.rawValue])
             try await self.client.setUnit(unit)
             self.convertVisibleTemperatures(from: previousUnit, to: unit)
             self.selectedUnit = unit
@@ -388,12 +380,17 @@ final class AppModel: ObservableObject {
     func applySetTemperature() async {
         await perform("Setting target temperature…") { [self] in
             let target = try self.parseTargetTemperature()
+            self.recordApp(
+                "setTemperature",
+                details: ["target": "\(MiniFormat.temperature(target))\(self.selectedUnit.symbol)"]
+            )
             try await self.client.setTemperature(target)
             self.lastKnownTargetTemperature = target
             self.persistCookState(targetTemperature: target)
             if case let .running(timerSeconds, _) = self.cookTimerState {
                 try await self.syncDeviceState(
-                    after: .running(targetTemperature: target, timerSeconds: timerSeconds, requireTimerRunningSignal: true)
+                    after: .running(targetTemperature: target, timerSeconds: timerSeconds, requireTimerRunningSignal: true),
+                    preservingTimerState: true
                 )
             } else {
                 try await self.syncDeviceState(after: .targetTemperature(target))
@@ -405,6 +402,13 @@ final class AppModel: ObservableObject {
     func applyTimer() async {
         await perform("Updating timer…") { [self] in
             let timer = try self.parseTimerSeconds()
+            self.recordApp(
+                "setTimer",
+                details: [
+                    "minutes": String(timer / 60),
+                    "seconds": String(timer),
+                ]
+            )
             self.timerMinutesText = Self.minutesString(fromSeconds: timer)
 
             if self.snapshot?.isCooking == true {
@@ -420,7 +424,8 @@ final class AppModel: ObservableObject {
                 self.lastKnownTargetTemperature = target
                 self.cookTimerState = .running(initialSeconds: timer, startedAt: Date())
                 try await self.syncDeviceState(
-                    after: .running(targetTemperature: target, timerSeconds: timer, requireTimerRunningSignal: true)
+                    after: .running(targetTemperature: target, timerSeconds: timer, requireTimerRunningSignal: true),
+                    preservingTimerState: true
                 )
                 self.statusMessage = "Timer updated."
             } else {
@@ -436,31 +441,32 @@ final class AppModel: ObservableObject {
         await perform("Starting cook…") { [self] in
             let setpoint = try self.parseTargetTemperature()
             let timer = try self.parseTimerSeconds()
+            self.recordApp(
+                "startCook",
+                details: [
+                    "setpoint": "\(MiniFormat.temperature(setpoint))\(self.selectedUnit.symbol)",
+                    "timerSeconds": String(timer),
+                ]
+            )
             try await self.client.startCook(setpoint: setpoint, timerSeconds: timer)
             self.lastKnownTargetTemperature = setpoint
             self.cookTimerState = .running(initialSeconds: timer, startedAt: Date())
             self.persistCookState(targetTemperature: setpoint)
             try await self.syncDeviceState(
-                after: .running(targetTemperature: setpoint, timerSeconds: timer, requireTimerRunningSignal: true)
+                after: .running(targetTemperature: setpoint, timerSeconds: timer, requireTimerRunningSignal: true),
+                preservingTimerState: true
             )
             self.statusMessage = "Start command sent."
-        }
-    }
-
-    func primaryCookAction() async {
-        switch cookTimerState {
-        case .running:
-            await pauseCook()
-        case .paused:
-            await resumeCook()
-        case .none, .staged, .stopped:
-            await startCook()
         }
     }
 
     func stopCook() async {
         await perform("Stopping cook…") { [self] in
             let preservedTimerSeconds = configuredTimerSeconds()
+            self.recordApp(
+                "stopCook",
+                details: ["preservedTimerSeconds": preservedTimerSeconds.map(String.init) ?? "nil"]
+            )
             try await self.client.stopCook()
             if let preservedTimerSeconds, preservedTimerSeconds > 0 {
                 self.timerMinutesText = Self.minutesString(fromSeconds: preservedTimerSeconds)
@@ -504,6 +510,7 @@ final class AppModel: ObservableObject {
         do {
             try await operation()
         } catch {
+            diagnostics.record(.error, "operation", details: ["reason": error.localizedDescription])
             restoreOperationState(stateSnapshot)
             statusMessage = previousStatus
             present(error)
@@ -546,6 +553,15 @@ final class AppModel: ObservableObject {
     }
 
     private func applySnapshot(_ latestSnapshot: MiniSnapshot, preservingTimerState: Bool = false) {
+        diagnostics.record(
+            .snapshot,
+            "applySnapshot",
+            details: [
+                "preservingTimerState": String(preservingTimerState),
+                "state": MiniFormat.compactJSON(latestSnapshot.state),
+                "timer": MiniFormat.compactJSON(latestSnapshot.timer),
+            ]
+        )
         snapshot = latestSnapshot
 
         if let unit = latestSnapshot.temperatureUnit, !isUnitChangeInFlight {
@@ -668,12 +684,22 @@ final class AppModel: ObservableObject {
             cookTimerState = .none
             targetTemperatureText = "60.0"
             timerMinutesText = "0"
+            diagnostics.record(.persistence, "restoreCookState", details: ["device": "nil"])
             return
         }
 
         let persisted = deviceCookState[device.identifier]
         lastKnownTargetTemperature = persisted?.targetTemperature
         cookTimerState = Self.restoreTimerState(from: persisted?.timerState)
+        diagnostics.record(
+            .persistence,
+            "restoreCookState",
+            details: [
+                "device": device.displayName,
+                "target": persisted?.targetTemperature.map(MiniFormat.temperature) ?? "nil",
+                "timerState": String(describing: persisted?.timerState),
+            ]
+        )
 
         if let target = persisted?.targetTemperature {
             targetTemperatureText = MiniFormat.temperature(target)
@@ -683,8 +709,6 @@ final class AppModel: ObservableObject {
 
         switch cookTimerState {
         case .staged(let seconds):
-            timerMinutesText = Self.minutesString(fromSeconds: seconds)
-        case .paused(let seconds):
             timerMinutesText = Self.minutesString(fromSeconds: seconds)
         case .stopped, .none:
             timerMinutesText = "0"
@@ -706,6 +730,16 @@ final class AppModel: ObservableObject {
         if let data = try? JSONEncoder().encode(deviceCookState) {
             defaults.set(data, forKey: Self.cookStateStorageKey)
         }
+
+        diagnostics.record(
+            .persistence,
+            "persistCookState",
+            details: [
+                "device": device.displayName,
+                "target": targetTemperature.map(MiniFormat.temperature) ?? "nil",
+                "timerState": String(describing: Self.persistedTimerState(for: cookTimerState)),
+            ]
+        )
     }
 
     private func convertVisibleTemperatures(from previousUnit: MiniTemperatureUnit, to newUnit: MiniTemperatureUnit) {
@@ -743,56 +777,10 @@ final class AppModel: ObservableObject {
         }
 
         switch cookTimerState {
-        case .staged(let seconds), .paused(let seconds), .running(let seconds, _):
+        case .staged(let seconds), .running(let seconds, _):
             return seconds
         case .none, .stopped:
             return nil
-        }
-    }
-
-    private func pauseCook() async {
-        await perform("Pausing cook…") { [self] in
-            guard case let .running(initialSeconds, startedAt) = self.cookTimerState else {
-                return
-            }
-
-            let remainingSeconds = initialSeconds == 0
-                ? 0
-                : Self.remainingTimerSeconds(initialSeconds: initialSeconds, startedAt: startedAt, now: self.timerNow)
-
-            try await self.client.stopCook()
-            try await self.syncDeviceState(after: .stopped)
-
-            self.cookTimerState = .paused(seconds: remainingSeconds)
-            self.timerMinutesText = Self.minutesString(fromSeconds: remainingSeconds)
-            self.persistCookState(targetTemperature: self.lastKnownTargetTemperature)
-            self.statusMessage = "Cook paused."
-        }
-    }
-
-    private func resumeCook() async {
-        await perform("Resuming cook…") { [self] in
-            guard case let .paused(timerSeconds) = self.cookTimerState else {
-                return
-            }
-
-            let target: Double
-            if let snapshotTarget = self.snapshot?.targetTemperatureValue {
-                target = snapshotTarget
-            } else if let lastKnownTarget = self.lastKnownTargetTemperature {
-                target = lastKnownTarget
-            } else {
-                target = try self.parseTargetTemperature()
-            }
-
-            try await self.client.startCook(setpoint: target, timerSeconds: timerSeconds)
-            self.lastKnownTargetTemperature = target
-            self.cookTimerState = .running(initialSeconds: timerSeconds, startedAt: Date())
-            self.persistCookState(targetTemperature: target)
-            try await self.syncDeviceState(
-                after: .running(targetTemperature: target, timerSeconds: timerSeconds, requireTimerRunningSignal: true)
-            )
-            self.statusMessage = "Cook resumed."
         }
     }
 
@@ -806,6 +794,16 @@ final class AppModel: ObservableObject {
             }
 
             let polledSnapshot = try await client.snapshot()
+            diagnostics.record(
+                .snapshot,
+                "syncAttempt",
+                details: [
+                    "attempt": "\(attempt + 1)/\(maxAttempts)",
+                    "expected": expectedState.summary,
+                    "state": MiniFormat.compactJSON(polledSnapshot.state),
+                    "timer": MiniFormat.compactJSON(polledSnapshot.timer),
+                ]
+            )
 
             if expectedState.matches(polledSnapshot) {
                 applySnapshot(polledSnapshot, preservingTimerState: preservingTimerState)
@@ -827,11 +825,6 @@ final class AppModel: ObservableObject {
             let startedAt = snapshot.timerStartedAt ?? preservedRunningStartedAt(for: initialSeconds) ?? Date()
             cookTimerState = .running(initialSeconds: initialSeconds, startedAt: startedAt)
             timerMinutesText = Self.minutesString(fromSeconds: initialSeconds)
-            return
-        }
-
-        if case .paused(let seconds) = cookTimerState {
-            timerMinutesText = Self.minutesString(fromSeconds: seconds)
             return
         }
 
@@ -867,8 +860,6 @@ final class AppModel: ObservableObject {
         switch timerState {
         case .staged(let seconds):
             return .staged(seconds: seconds)
-        case .paused(let seconds):
-            return .paused(seconds: seconds)
         case .stopped:
             return .stopped
         case .none, .running:
@@ -881,11 +872,15 @@ final class AppModel: ObservableObject {
         case .staged(let seconds):
             return .staged(seconds: seconds)
         case .paused(let seconds):
-            return .paused(seconds: seconds)
+            return .staged(seconds: seconds)
         case .stopped:
             return .stopped
         case nil:
             return .none
         }
+    }
+
+    private func recordApp(_ message: String, details: [String: String] = [:]) {
+        diagnostics.record(.app, message, details: details)
     }
 }

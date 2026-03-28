@@ -72,10 +72,17 @@ final class MiniBLEClient: NSObject {
     private var discoveredPeripherals: [UUID: DiscoveredPeripheral] = [:]
     private var connectedPeripheral: CBPeripheral?
     private var characteristicsByUUID: [CBUUID: CBCharacteristic] = [:]
+    private let diagnostics: MiniDiagnosticsStore
+
+    init(diagnostics: MiniDiagnosticsStore) {
+        self.diagnostics = diagnostics
+        super.init()
+    }
 
     func scan(timeout seconds: TimeInterval = 5) async throws -> [MiniDiscoveredDevice] {
         _ = central
         try await waitUntilBluetoothReady()
+        recordBLE("scanStart", details: ["timeoutSeconds": String(Int(seconds))])
 
         discoveredPeripherals.removeAll()
         central.stopScan()
@@ -85,6 +92,8 @@ final class MiniBLEClient: NSObject {
 
         try await Task.sleep(for: .seconds(seconds))
         central.stopScan()
+
+        recordBLE("scanComplete", details: ["discovered": String(discoveredPeripherals.count)])
 
         return discoveredPeripherals.values
             .map(\.device)
@@ -99,6 +108,7 @@ final class MiniBLEClient: NSObject {
         }
 
         if connectedPeripheral?.identifier != deviceID {
+            recordBLE("connectStart", details: ["deviceID": deviceID.uuidString])
             disconnectCurrentPeripheral()
             connectedPeripheral = discovered.peripheral
             connectedPeripheral?.delegate = self
@@ -115,23 +125,46 @@ final class MiniBLEClient: NSObject {
         }
 
         try await discoverProfile(on: discovered.peripheral)
+        recordBLE("connectReady", details: ["device": discovered.device.displayName])
         return discovered.device
     }
 
     func disconnect() {
+        recordBLE("disconnectRequested")
         disconnectCurrentPeripheral()
     }
 
     func snapshot() async throws -> MiniSnapshot {
-        MiniSnapshot(
+        let snapshot = MiniSnapshot(
             state: try await readJSON(for: MiniBLEUUIDs.state),
             currentTemperature: try await readJSON(for: MiniBLEUUIDs.currentTemperature),
             timer: try await readJSON(for: MiniBLEUUIDs.timer)
         )
+        diagnostics.record(
+            .snapshot,
+            "snapshot",
+            details: [
+                "state": MiniFormat.compactJSON(snapshot.state),
+                "timer": MiniFormat.compactJSON(snapshot.timer),
+            ]
+        )
+        return snapshot
     }
 
     func systemInfo() async throws -> JSONDictionary {
-        try await readJSON(for: MiniBLEUUIDs.systemInfo)
+        let info = try await readJSON(for: MiniBLEUUIDs.systemInfo)
+        recordBLE("systemInfo", details: ["payload": MiniFormat.compactJSON(info)])
+        return info
+    }
+
+    func setClockToUTCNow() async throws {
+        try await writeJSON(
+            [
+                "currentTime": Self.utcTimestampString(),
+            ],
+            to: MiniBLEUUIDs.setClock,
+            expectsAcknowledgement: true
+        )
     }
 
     func setUnit(_ unit: MiniTemperatureUnit) async throws {
@@ -227,18 +260,46 @@ final class MiniBLEClient: NSObject {
             }
 
             characteristicsContinuation = continuation
-            peripheral.discoverCharacteristics(MiniBLEUUIDs.requiredCharacteristics, for: service)
+            peripheral.discoverCharacteristics(nil, for: service)
         }
 
         let discovered = Set(characteristicsByUUID.keys.map(\.uuidString))
         for uuid in MiniBLEUUIDs.requiredCharacteristics where !discovered.contains(uuid.uuidString) {
             throw MiniBLEClientError.missingCharacteristic(uuid.uuidString)
         }
+
+        recordBLE(
+            "characteristics",
+            details: [
+                "inventory": characteristicsByUUID.values
+                    .sorted { $0.uuid.uuidString < $1.uuid.uuidString }
+                    .map(Self.describe)
+                    .joined(separator: " | ")
+            ]
+        )
+
+        for characteristic in characteristicsByUUID.values.sorted(by: { $0.uuid.uuidString < $1.uuid.uuidString }) {
+            let supportsNotify = characteristic.properties.contains(.notify) || characteristic.properties.contains(.indicate)
+            guard supportsNotify else {
+                continue
+            }
+
+            recordBLE("subscribeRequest", details: ["characteristic": Self.describe(characteristic)])
+            peripheral.setNotifyValue(true, for: characteristic)
+        }
     }
 
     private func readJSON(for uuid: CBUUID) async throws -> JSONDictionary {
         let data = try await readValue(for: uuid)
-        return try MiniCodec.decode(data)
+        let decoded = try MiniCodec.decode(data)
+        recordBLE(
+            "read",
+            details: [
+                "characteristic": Self.label(for: uuid),
+                "payload": MiniFormat.compactJSON(decoded),
+            ]
+        )
+        return decoded
     }
 
     private func writeJSON(
@@ -247,6 +308,14 @@ final class MiniBLEClient: NSObject {
         expectsAcknowledgement: Bool
     ) async throws {
         let data = try MiniCodec.encode(payload)
+        recordBLE(
+            "write",
+            details: [
+                "characteristic": Self.label(for: uuid),
+                "ack": String(expectsAcknowledgement),
+                "payload": MiniFormat.compactJSON(payload),
+            ]
+        )
         try await writeValue(data, to: uuid, expectsAcknowledgement: expectsAcknowledgement)
     }
 
@@ -312,6 +381,7 @@ final class MiniBLEClient: NSObject {
             return
         }
 
+        recordBLE("disconnectCurrent", details: ["peripheral": peripheral.identifier.uuidString])
         connectedPeripheral = nil
         characteristicsByUUID.removeAll()
         peripheral.delegate = nil
@@ -345,6 +415,59 @@ final class MiniBLEClient: NSObject {
         for continuation in writes.values {
             continuation.resume(throwing: error)
         }
+    }
+
+    private static func utcTimestampString(now: Date = Date()) -> String {
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [
+            .withInternetDateTime,
+            .withDashSeparatorInDate,
+            .withColonSeparatorInTime,
+            .withColonSeparatorInTimeZone,
+        ]
+        formatter.timeZone = TimeZone(secondsFromGMT: 0)
+        return formatter.string(from: now)
+    }
+
+    private func recordBLE(_ message: String, details: [String: String] = [:]) {
+        diagnostics.record(.ble, message, details: details)
+    }
+
+    private static func label(for uuid: CBUUID) -> String {
+        MiniBLEUUIDs.name(for: uuid)
+    }
+
+    private static func describe(_ characteristic: CBCharacteristic) -> String {
+        "\(label(for: characteristic.uuid))[\(characteristic.uuid.uuidString)] props=\(describe(characteristic.properties))"
+    }
+
+    private static func describe(_ properties: CBCharacteristicProperties) -> String {
+        var labels: [String] = []
+
+        if properties.contains(.broadcast) { labels.append("broadcast") }
+        if properties.contains(.read) { labels.append("read") }
+        if properties.contains(.writeWithoutResponse) { labels.append("writeWithoutResponse") }
+        if properties.contains(.write) { labels.append("write") }
+        if properties.contains(.notify) { labels.append("notify") }
+        if properties.contains(.indicate) { labels.append("indicate") }
+        if properties.contains(.authenticatedSignedWrites) { labels.append("signedWrite") }
+        if properties.contains(.extendedProperties) { labels.append("extended") }
+        if properties.contains(.notifyEncryptionRequired) { labels.append("notifyEncrypted") }
+        if properties.contains(.indicateEncryptionRequired) { labels.append("indicateEncrypted") }
+
+        return labels.isEmpty ? "none" : labels.joined(separator: ",")
+    }
+
+    private static func tracePayloadDescription(for data: Data) -> String {
+        if let decoded = try? MiniCodec.decode(data) {
+            return MiniFormat.compactJSON(decoded)
+        }
+
+        if let string = String(data: data, encoding: .utf8), !string.isEmpty {
+            return string
+        }
+
+        return data.base64EncodedString()
     }
 }
 
@@ -391,6 +514,7 @@ extension MiniBLEClient: @preconcurrency CBCentralManagerDelegate {
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
         connectedPeripheral = peripheral
+        recordBLE("didConnect", details: ["peripheral": peripheral.identifier.uuidString])
         connectContinuation?.resume()
         connectContinuation = nil
     }
@@ -401,6 +525,14 @@ extension MiniBLEClient: @preconcurrency CBCentralManagerDelegate {
         error: (any Error)?
     ) {
         let failure = error ?? MiniBLEClientError.disconnected("Connection failed")
+        diagnostics.record(
+            .error,
+            "didFailToConnect",
+            details: [
+                "peripheral": peripheral.identifier.uuidString,
+                "reason": failure.localizedDescription,
+            ]
+        )
         connectContinuation?.resume(throwing: failure)
         connectContinuation = nil
     }
@@ -411,6 +543,14 @@ extension MiniBLEClient: @preconcurrency CBCentralManagerDelegate {
         error: (any Error)?
     ) {
         let reason = error?.localizedDescription ?? "The device disconnected."
+        diagnostics.record(
+            .error,
+            "didDisconnect",
+            details: [
+                "peripheral": peripheral.identifier.uuidString,
+                "reason": reason,
+            ]
+        )
         connectedPeripheral = nil
         characteristicsByUUID.removeAll()
         failPendingOperations(MiniBLEClientError.disconnected(reason))
@@ -420,11 +560,13 @@ extension MiniBLEClient: @preconcurrency CBCentralManagerDelegate {
 extension MiniBLEClient: @preconcurrency CBPeripheralDelegate {
     func peripheral(_ peripheral: CBPeripheral, didDiscoverServices error: (any Error)?) {
         if let error {
+            diagnostics.record(.error, "didDiscoverServices", details: ["reason": error.localizedDescription])
             servicesContinuation?.resume(throwing: error)
             servicesContinuation = nil
             return
         }
 
+        recordBLE("didDiscoverServices", details: ["count": String(peripheral.services?.count ?? 0)])
         servicesContinuation?.resume()
         servicesContinuation = nil
     }
@@ -435,6 +577,7 @@ extension MiniBLEClient: @preconcurrency CBPeripheralDelegate {
         error: (any Error)?
     ) {
         if let error {
+            diagnostics.record(.error, "didDiscoverCharacteristics", details: ["reason": error.localizedDescription])
             characteristicsContinuation?.resume(throwing: error)
             characteristicsContinuation = nil
             return
@@ -454,10 +597,41 @@ extension MiniBLEClient: @preconcurrency CBPeripheralDelegate {
         error: (any Error)?
     ) {
         guard let continuation = readContinuations.removeValue(forKey: characteristic.uuid) else {
+            if let error {
+                diagnostics.record(
+                    .error,
+                    "notify",
+                    details: [
+                        "characteristic": Self.label(for: characteristic.uuid),
+                        "reason": error.localizedDescription,
+                    ]
+                )
+                return
+            }
+
+            if let data = characteristic.value {
+                recordBLE(
+                    "notify",
+                    details: [
+                        "characteristic": Self.label(for: characteristic.uuid),
+                        "payload": Self.tracePayloadDescription(for: data),
+                    ]
+                )
+            } else {
+                recordBLE("notify", details: ["characteristic": Self.label(for: characteristic.uuid), "payload": "empty"])
+            }
             return
         }
 
         if let error {
+            diagnostics.record(
+                .error,
+                "read",
+                details: [
+                    "characteristic": Self.label(for: characteristic.uuid),
+                    "reason": error.localizedDescription,
+                ]
+            )
             continuation.resume(throwing: error)
             return
         }
@@ -475,6 +649,19 @@ extension MiniBLEClient: @preconcurrency CBPeripheralDelegate {
         didWriteValueFor characteristic: CBCharacteristic,
         error: (any Error)?
     ) {
+        if let error {
+            diagnostics.record(
+                .error,
+                "writeAck",
+                details: [
+                    "characteristic": Self.label(for: characteristic.uuid),
+                    "reason": error.localizedDescription,
+                ]
+            )
+        } else {
+            recordBLE("writeAck", details: ["characteristic": Self.label(for: characteristic.uuid), "status": "ok"])
+        }
+
         guard let continuation = writeContinuations.removeValue(forKey: characteristic.uuid) else {
             return
         }
@@ -485,5 +672,32 @@ extension MiniBLEClient: @preconcurrency CBPeripheralDelegate {
         }
 
         continuation.resume()
+    }
+
+    func peripheral(
+        _ peripheral: CBPeripheral,
+        didUpdateNotificationStateFor characteristic: CBCharacteristic,
+        error: (any Error)?
+    ) {
+        if let error {
+            diagnostics.record(
+                .error,
+                "notifyState",
+                details: [
+                    "characteristic": Self.label(for: characteristic.uuid),
+                    "enabled": String(characteristic.isNotifying),
+                    "reason": error.localizedDescription,
+                ]
+            )
+            return
+        }
+
+        recordBLE(
+            "notifyState",
+            details: [
+                "characteristic": Self.label(for: characteristic.uuid),
+                "enabled": String(characteristic.isNotifying),
+            ]
+        )
     }
 }

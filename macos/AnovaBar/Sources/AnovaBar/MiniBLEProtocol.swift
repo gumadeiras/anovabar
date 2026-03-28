@@ -35,6 +35,7 @@ enum MiniBLEUUIDs {
     static let currentTemperature = CBUUID(string: "6FFDCA46-D6A8-4FB2-8FD9-C6330F1939E3")
     static let timer = CBUUID(string: "A2B179F8-944E-436F-A246-C66CAAF7061F")
     static let state = CBUUID(string: "54E53C60-367A-4783-A5C1-B1770C54142B")
+    static let setClock = CBUUID(string: "D8A89692-CAE8-4B74-96E3-0B99D3637793")
     static let systemInfo = CBUUID(string: "153C9432-7C83-4B88-9252-7588229D5473")
 
     static let requiredCharacteristics = [
@@ -42,8 +43,30 @@ enum MiniBLEUUIDs {
         currentTemperature,
         timer,
         state,
+        setClock,
         systemInfo,
     ]
+
+    static func name(for uuid: CBUUID) -> String {
+        switch uuid {
+        case service:
+            return "service"
+        case setTemperature:
+            return "setTemperature"
+        case currentTemperature:
+            return "currentTemperature"
+        case timer:
+            return "timer"
+        case state:
+            return "state"
+        case setClock:
+            return "setClock"
+        case systemInfo:
+            return "systemInfo"
+        default:
+            return uuid.uuidString
+        }
+    }
 }
 
 struct MiniDiscoveredDevice: Identifiable, Hashable {
@@ -64,6 +87,46 @@ struct MiniSnapshot {
     let state: JSONDictionary
     let currentTemperature: JSONDictionary
     let timer: JSONDictionary
+
+    func matchesRunningCook(
+        targetTemperature: Double,
+        timerSeconds: Int,
+        temperatureUnit: MiniTemperatureUnit? = nil,
+        requireTimerRunningSignal: Bool = false
+    ) -> Bool {
+        guard isCooking else {
+            return false
+        }
+
+        if let temperatureUnit, self.temperatureUnit != temperatureUnit {
+            return false
+        }
+
+        if let snapshotTarget = targetTemperatureValue,
+           abs(snapshotTarget - targetTemperature) > 0.2 {
+            return false
+        }
+
+        if timerSeconds == 0 {
+            return true
+        }
+
+        if requireTimerRunningSignal,
+           !timerHasRunningSignal,
+           (timerInitialSeconds ?? 0) <= 0 {
+            return false
+        }
+
+        if let remaining = timerSecondsValue {
+            return remaining > 0 && remaining <= timerSeconds
+        }
+
+        if let initial = timerInitialSeconds {
+            return initial > 0 && initial <= timerSeconds
+        }
+
+        return false
+    }
 
     var temperatureUnit: MiniTemperatureUnit? {
         guard let raw = MiniJSON.string(in: state, key: "temperatureUnit") else {
@@ -361,6 +424,17 @@ enum MiniFormat {
     static func json(_ dictionary: JSONDictionary) -> String {
         guard JSONSerialization.isValidJSONObject(dictionary),
               let data = try? JSONSerialization.data(withJSONObject: dictionary, options: [.prettyPrinted, .sortedKeys]),
+              let string = String(data: data, encoding: .utf8)
+        else {
+            return String(describing: dictionary)
+        }
+
+        return string
+    }
+
+    static func compactJSON(_ dictionary: JSONDictionary) -> String {
+        guard JSONSerialization.isValidJSONObject(dictionary),
+              let data = try? JSONSerialization.data(withJSONObject: dictionary, options: [.sortedKeys]),
               let string = String(data: data, encoding: .utf8)
         else {
             return String(describing: dictionary)

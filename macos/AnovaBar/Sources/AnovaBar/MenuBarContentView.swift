@@ -235,9 +235,11 @@ struct MenuBarContentView: View {
 
                 Button("Stop", action: asyncAction(model.stopCook))
                     .actionButton()
+                    .disabled(!model.canStopCook)
 
-                Button(model.primaryCookActionTitle, action: asyncAction(model.primaryCookAction))
+                Button("Start Cook", action: asyncAction(model.startCook))
                     .primaryActionButton()
+                    .disabled(!model.canStartCook)
             }
         }
         .disabled(model.isBusy)
@@ -248,6 +250,12 @@ struct MenuBarContentView: View {
     private var diagnosticsPanel: some View {
         VStack(alignment: .leading, spacing: 0) {
             diagnosticDisclosure("System Info", text: model.systemInfoText, maxHeight: 88)
+
+            Divider()
+                .overlay(Color.white.opacity(0.06))
+                .padding(.vertical, 8)
+
+            diagnosticDisclosure("BLE Trace", text: model.bleTraceText, maxHeight: 132)
 
             Divider()
                 .overlay(Color.white.opacity(0.06))
