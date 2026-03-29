@@ -12,7 +12,7 @@
 
 Supported in the app today:
 
-- Nano
+- Nano (Untested, I don't own one)
 - Mini / Gen 3
 - Original Precision Cooker
 

@@ -15,7 +15,7 @@ Bluetooth control for Anova cookers, with a macOS menu bar app and a Rust CLI.
 
 ## Supported Today
 
-- Nano
+- Nano (Untested, I don't own one)
 - Mini / Gen 3
 - Original Precision Cooker
 
