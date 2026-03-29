@@ -50,4 +50,10 @@ open dist/AnovaBarCLI.app --args mini scan --scan-timeout 5
 - `assets/anovabar.png`: logo used in this README
 - `assets/anovabar.pdf`: source artwork
 
+## Contributing
+
+Issues and PRs are welcome.
+
+If you have a cooker model that is not supported yet, contributions for new model support are especially useful.
+
 Sous vide, but make it tiny and fast.
