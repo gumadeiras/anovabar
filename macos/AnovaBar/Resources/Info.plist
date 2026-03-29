@@ -25,8 +25,8 @@
     <key>LSUIElement</key>
     <true/>
     <key>NSBluetoothAlwaysUsageDescription</key>
-    <string>AnovaBar uses Bluetooth to discover and control nearby Anova Mini sous vide cookers.</string>
+    <string>AnovaBar uses Bluetooth to discover and control nearby supported Anova sous vide cookers.</string>
     <key>NSBluetoothPeripheralUsageDescription</key>
-    <string>AnovaBar uses Bluetooth to discover and control nearby Anova Mini sous vide cookers.</string>
+    <string>AnovaBar uses Bluetooth to discover and control nearby supported Anova sous vide cookers.</string>
 </dict>
 </plist>

@@ -37,7 +37,7 @@ struct MiniCookStateMachineTests {
             ]
         )
 
-        let effect = state.apply(.snapshotObserved(snapshot, preservingPhase: false, now: now))
+        let effect = state.apply(.snapshotObserved(snapshot.cookerSnapshot, preservingPhase: false, now: now))
 
         #expect(effect == nil)
         switch state.phase {
@@ -68,8 +68,8 @@ struct MiniCookStateMachineTests {
             ]
         )
 
-        let firstEffect = state.apply(.snapshotObserved(snapshot, preservingPhase: false, now: now))
-        let secondEffect = state.apply(.snapshotObserved(snapshot, preservingPhase: false, now: now))
+        let firstEffect = state.apply(.snapshotObserved(snapshot.cookerSnapshot, preservingPhase: false, now: now))
+        let secondEffect = state.apply(.snapshotObserved(snapshot.cookerSnapshot, preservingPhase: false, now: now))
 
         #expect(firstEffect == .autoStopAfterTimerCompletion)
         #expect(secondEffect == nil)

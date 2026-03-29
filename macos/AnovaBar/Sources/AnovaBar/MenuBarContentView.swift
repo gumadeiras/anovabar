@@ -103,7 +103,7 @@ struct MenuBarContentView: View {
     private var discoveryPanel: some View {
         VStack(alignment: .leading, spacing: UI.panelSpacing) {
             HStack(alignment: .firstTextBaseline) {
-                Text(model.devices.isEmpty ? "Nearby Minis" : "Choose a Mini")
+                Text(model.devices.isEmpty ? "Nearby Cookers" : "Choose a Cooker")
                     .sectionTitle()
 
                 Spacer()
@@ -392,7 +392,7 @@ struct MenuBarContentView: View {
         }
     }
 
-    private func deviceInfoPanel(device: MiniDiscoveredDevice) -> some View {
+    private func deviceInfoPanel(device: AnovaDiscoveredDevice) -> some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 brandIcon(size: 26, symbolSize: 13)
@@ -425,7 +425,7 @@ struct MenuBarContentView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            TextField("Kitchen Mini", text: $model.aliasText)
+            TextField("Kitchen Cooker", text: $model.aliasText)
                 .settingsFieldStyle()
                 .frame(maxWidth: .infinity)
 

@@ -16,7 +16,7 @@ enum MiniBLEClientError: LocalizedError {
         case .bluetoothUnavailable(let state):
             "Bluetooth is not ready: \(state.label)."
         case .noSelection:
-            "Choose an Anova Mini device first."
+            "Choose an Anova cooker first."
         case .deviceNotFound:
             "The selected device is no longer available."
         case .missingCharacteristic(let name):

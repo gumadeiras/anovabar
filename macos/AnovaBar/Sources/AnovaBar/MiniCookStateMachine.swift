@@ -35,12 +35,12 @@ enum MiniCookSessionEvent {
     case stopRequested(preservedTimerSeconds: Int?)
     case autoStopRequested
     case stopConfirmed(preservedTimerSeconds: Int?)
-    case snapshotObserved(MiniSnapshot, preservingPhase: Bool, now: Date)
+    case snapshotObserved(CookerSnapshot, preservingPhase: Bool, now: Date)
     case disconnect
 }
 
 struct MiniObservedDeviceState {
-    var snapshot: MiniSnapshot?
+    var snapshot: CookerSnapshot?
     var systemInfo: JSONDictionary?
     var lastKnownCurrentTemperature: Double?
     var lastKnownTargetTemperature: Double?
@@ -53,7 +53,7 @@ struct MiniObservedDeviceState {
         lastKnownTargetTemperature ?? snapshot?.targetTemperatureValue
     }
 
-    mutating func apply(snapshot: MiniSnapshot) {
+    mutating func apply(snapshot: CookerSnapshot) {
         self.snapshot = snapshot
 
         if let current = snapshot.currentTemperatureValue {
@@ -276,7 +276,7 @@ struct MiniCookSessionState: Equatable {
         return .stopped
     }
 
-    private static func phase(from snapshot: MiniSnapshot, existingPhase: MiniCookPhase, now: Date) -> MiniCookPhase {
+    private static func phase(from snapshot: CookerSnapshot, existingPhase: MiniCookPhase, now: Date) -> MiniCookPhase {
         if snapshot.isCooking {
             guard let initialSeconds = snapshot.timerInitialSeconds ?? snapshot.timerSecondsValue else {
                 return .none

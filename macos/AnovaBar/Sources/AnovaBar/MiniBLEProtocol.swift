@@ -375,6 +375,28 @@ struct MiniSnapshot {
                 : "Cook activity and timer semantics are inferred from the available BLE payloads.",
         ]
     }
+
+    var cookerSnapshot: CookerSnapshot {
+        CookerSnapshot(
+            family: .mini,
+            temperatureUnit: temperatureUnit,
+            currentTemperatureValue: currentTemperatureValue,
+            targetTemperatureValue: targetTemperatureValue,
+            timerDisplay: timerDisplay,
+            timerSecondsValue: timerSecondsValue,
+            timerInitialSeconds: timerInitialSeconds,
+            timerStartedAt: timerStartedAt,
+            timerMode: timerMode,
+            stateMode: stateMode,
+            timerHasRunningSignal: timerHasRunningSignal,
+            timerHasCompleted: timerHasCompleted,
+            isCooking: isCooking,
+            interpretation: interpretation,
+            state: state,
+            currentTemperature: currentTemperature,
+            timer: timer
+        )
+    }
 }
 
 enum MiniJSON {

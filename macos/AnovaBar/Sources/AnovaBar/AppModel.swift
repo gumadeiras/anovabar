@@ -29,7 +29,7 @@ final class AppModel: ObservableObject {
         )
         case stopped
 
-        func matches(_ snapshot: MiniSnapshot) -> Bool {
+        func matches(_ snapshot: CookerSnapshot) -> Bool {
             switch self {
             case .temperatureUnit(let unit):
                 return snapshot.temperatureUnit == unit
@@ -74,7 +74,7 @@ final class AppModel: ObservableObject {
     }
 
     private struct OperationStateSnapshot {
-        var connectedDevice: MiniDiscoveredDevice?
+        var connectedDevice: AnovaDiscoveredDevice?
         var observedState: MiniObservedDeviceState
         var targetTemperatureText: String
         var timerMinutesText: String
@@ -82,9 +82,9 @@ final class AppModel: ObservableObject {
         var sessionState: MiniCookSessionState
     }
 
-    @Published private(set) var devices: [MiniDiscoveredDevice] = []
+    @Published private(set) var devices: [AnovaDiscoveredDevice] = []
     @Published var selectedDeviceID: UUID?
-    @Published private(set) var connectedDevice: MiniDiscoveredDevice?
+    @Published private(set) var connectedDevice: AnovaDiscoveredDevice?
     @Published private var observedState = MiniObservedDeviceState()
     @Published private var sessionState = MiniCookSessionState()
     @Published private(set) var statusMessage = "Disconnected."
@@ -100,7 +100,7 @@ final class AppModel: ObservableObject {
     @Published var lastError: String?
 
     private let diagnostics: MiniDiagnosticsStore
-    private let client: MiniBLEClient
+    private let coordinator: AnovaBLECoordinator
     private let defaults = UserDefaults.standard
     private var didLoad = false
     private var pollTask: Task<Void, Never>?
@@ -110,11 +110,12 @@ final class AppModel: ObservableObject {
     private var isUnitChangeInFlight = false
     private var deviceAliases: [String: String]
     private var deviceCookState: [String: PersistedCookState]
+    private var session: (any AnovaCookerSession)?
     @Published private var timerNow = Date()
 
     init() {
         self.diagnostics = MiniDiagnosticsStore()
-        self.client = MiniBLEClient(diagnostics: diagnostics)
+        self.coordinator = AnovaBLECoordinator(diagnostics: diagnostics)
         self.deviceAliases = defaults.dictionary(forKey: Self.aliasStorageKey) as? [String: String] ?? [:]
         self.isDebugEnabled = defaults.object(forKey: Self.debugEnabledStorageKey) as? Bool ?? false
         if let data = defaults.data(forKey: Self.cookStateStorageKey),
@@ -231,7 +232,7 @@ final class AppModel: ObservableObject {
         }
 
         do {
-            let found = try await client.scan(timeout: 5)
+            let found = try await coordinator.scan(timeout: 5)
             devices = found
             hasCompletedScan = true
 
@@ -242,9 +243,9 @@ final class AppModel: ObservableObject {
             syncAliasDraft()
 
             if found.isEmpty {
-                statusMessage = "No Anova Mini devices found."
+                statusMessage = "No supported Anova cookers found."
             } else {
-                statusMessage = "Found \(found.count) nearby Mini device(s)."
+                statusMessage = "Found \(found.count) nearby cooker(s)."
             }
         } catch {
             present(error)
@@ -263,15 +264,19 @@ final class AppModel: ObservableObject {
                 throw MiniBLEClientError.noSelection
             }
 
-            let device = try await self.client.connect(to: selectedDeviceID)
+            let session = try await self.coordinator.connect(to: selectedDeviceID)
+            let device = session.device
+            self.session = session
             self.recordApp("connected", details: ["device": device.displayName])
             self.connectedDevice = device
             self.restoreCookState(for: device)
             self.syncAliasDraft()
             self.statusMessage = "Connected to \(self.label(for: device))."
 
-            try await self.client.setClockToUTCNow()
-            self.observedState.systemInfo = try await self.client.systemInfo()
+            if session.supportsClockSync {
+                try await session.setClockToUTCNow()
+            }
+            self.observedState.systemInfo = try await session.systemInfo()
             try await self.refreshSnapshot()
             self.startPolling()
             self.startClock()
@@ -282,7 +287,9 @@ final class AppModel: ObservableObject {
         recordApp("disconnectRequested")
         stopPolling()
         stopClock()
-        client.disconnect()
+        session?.disconnect()
+        session = nil
+        coordinator.disconnect()
         connectedDevice = nil
         observedState.clearConnectionState()
         _ = sessionState.apply(.disconnect)
@@ -318,7 +325,7 @@ final class AppModel: ObservableObject {
         recordApp("refreshRequested")
         await perform("Refreshing…") { [self] in
             try await self.refreshSnapshot()
-            self.observedState.systemInfo = try await self.client.systemInfo()
+            self.observedState.systemInfo = try await self.activeSession().systemInfo()
         }
     }
 
@@ -331,7 +338,7 @@ final class AppModel: ObservableObject {
 
         await perform("Updating temperature unit…") { [self] in
             self.recordApp("setUnit", details: ["unit": unit.rawValue])
-            try await self.client.setUnit(unit)
+            try await self.activeSession().setUnit(unit)
             self.convertVisibleTemperatures(from: previousUnit, to: unit)
             self.selectedUnit = unit
             if let timerSeconds = self.sessionState.activeCookTimerSeconds {
@@ -368,7 +375,7 @@ final class AppModel: ObservableObject {
                 "setTemperature",
                 details: ["target": "\(MiniFormat.temperature(target))\(self.selectedUnit.symbol)"]
             )
-            try await self.client.setTemperature(target)
+            try await self.activeSession().setTemperature(target)
             self.observedState.setTargetTemperature(target)
             self.persistCookState(targetTemperature: target)
             if let timerSeconds = self.sessionState.activeCookTimerSeconds {
@@ -404,7 +411,7 @@ final class AppModel: ObservableObject {
                 } else {
                     target = try self.parseTargetTemperature()
                 }
-                try await self.client.startCook(setpoint: target, timerSeconds: timer)
+                try await self.activeSession().startCook(setpoint: target, timerSeconds: timer)
                 self.observedState.setTargetTemperature(target)
                 _ = self.sessionState.apply(.timerUpdatedWhileCooking(timerSeconds: timer, now: Date()))
                 try await self.syncDeviceState(
@@ -432,7 +439,7 @@ final class AppModel: ObservableObject {
                     "timerSeconds": String(timer),
                 ]
             )
-            try await self.client.startCook(setpoint: setpoint, timerSeconds: timer)
+            try await self.activeSession().startCook(setpoint: setpoint, timerSeconds: timer)
             self.observedState.setTargetTemperature(setpoint)
             _ = self.sessionState.apply(.startRequested(timerSeconds: timer, now: Date()))
             self.persistCookState(targetTemperature: setpoint)
@@ -456,7 +463,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    func label(for device: MiniDiscoveredDevice) -> String {
+    func label(for device: AnovaDiscoveredDevice) -> String {
         alias(for: device) ?? device.displayName
     }
 
@@ -500,7 +507,9 @@ final class AppModel: ObservableObject {
 
     private func restoreOperationState(_ state: OperationStateSnapshot) {
         if connectedDevice?.id != state.connectedDevice?.id {
-            client.disconnect()
+            session?.disconnect()
+            session = nil
+            coordinator.disconnect()
         }
 
         connectedDevice = state.connectedDevice
@@ -512,11 +521,11 @@ final class AppModel: ObservableObject {
     }
 
     private func refreshSnapshot(preservingTimerState: Bool = false) async throws {
-        let latestSnapshot = try await client.snapshot()
+        let latestSnapshot = try await activeSession().snapshot()
         applySnapshot(latestSnapshot, preservingTimerState: preservingTimerState)
     }
 
-    private func applySnapshot(_ latestSnapshot: MiniSnapshot, preservingTimerState: Bool = false) {
+    private func applySnapshot(_ latestSnapshot: CookerSnapshot, preservingTimerState: Bool = false) {
         diagnostics.record(
             .snapshot,
             "applySnapshot",
@@ -547,11 +556,13 @@ final class AppModel: ObservableObject {
             throw MiniBLEClientError.invalidPayload("Enter a numeric target temperature.")
         }
 
-        let supportedRange = selectedUnit.supportedSetpointRange
-        guard supportedRange.contains(value) else {
-            throw MiniBLEClientError.invalidPayload(
-                "Enter a temperature between \(selectedUnit.supportedSetpointDescription)."
-            )
+        if connectedDevice?.family == .mini {
+            let supportedRange = selectedUnit.supportedSetpointRange
+            guard supportedRange.contains(value) else {
+                throw MiniBLEClientError.invalidPayload(
+                    "Enter a temperature between \(selectedUnit.supportedSetpointDescription)."
+                )
+            }
         }
 
         return value
@@ -615,7 +626,7 @@ final class AppModel: ObservableObject {
         lastError = error.localizedDescription
     }
 
-    private func alias(for device: MiniDiscoveredDevice) -> String? {
+    private func alias(for device: AnovaDiscoveredDevice) -> String? {
         let alias = deviceAliases[device.identifier]?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let alias, !alias.isEmpty else {
             return nil
@@ -624,7 +635,7 @@ final class AppModel: ObservableObject {
         return alias
     }
 
-    private func selectedOrConnectedDevice() -> MiniDiscoveredDevice? {
+    private func selectedOrConnectedDevice() -> AnovaDiscoveredDevice? {
         if let connectedDevice {
             return connectedDevice
         }
@@ -644,7 +655,7 @@ final class AppModel: ObservableObject {
         defaults.set(deviceAliases, forKey: Self.aliasStorageKey)
     }
 
-    private func restoreCookState(for device: MiniDiscoveredDevice?) {
+    private func restoreCookState(for device: AnovaDiscoveredDevice?) {
         guard let device else {
             observedState.restorePersistedTarget(nil)
             _ = sessionState.apply(.restore(timerState: .none, lastCompletedAt: nil))
@@ -747,6 +758,13 @@ final class AppModel: ObservableObject {
     }
 
     private func syncDeviceState(after expectedState: ExpectedDeviceState, preservingTimerState: Bool = false) async throws {
+        let session = try activeSession()
+        guard session.supportsStrictStateConfirmation else {
+            let snapshot = try await session.snapshot()
+            applySnapshot(snapshot, preservingTimerState: preservingTimerState)
+            return
+        }
+
         let maxAttempts: Int
         let pollInterval: Duration
 
@@ -764,7 +782,7 @@ final class AppModel: ObservableObject {
                 try await Task.sleep(for: pollInterval)
             }
 
-            let polledSnapshot = try await client.snapshot()
+            let polledSnapshot = try await activeSession().snapshot()
             diagnostics.record(
                 .snapshot,
                 "syncAttempt",
@@ -799,7 +817,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func handleSessionEffect(_ effect: MiniCookSessionEffect?, snapshot: MiniSnapshot) {
+    private func handleSessionEffect(_ effect: MiniCookSessionEffect?, snapshot: CookerSnapshot) {
         guard let effect else {
             return
         }
@@ -810,7 +828,7 @@ final class AppModel: ObservableObject {
         }
     }
 
-    private func scheduleAutoStopAfterTimerCompletion(using snapshot: MiniSnapshot) {
+    private func scheduleAutoStopAfterTimerCompletion(using snapshot: CookerSnapshot) {
         guard autoStopTask == nil else {
             return
         }
@@ -847,7 +865,7 @@ final class AppModel: ObservableObject {
             _ = sessionState.apply(.autoStopRequested)
         }
         refreshTimerMinutesTextFromSession()
-        try await client.stopCook()
+        try await activeSession().stopCook()
         persistCookState(targetTemperature: observedState.lastKnownTargetTemperature)
         try await syncDeviceState(after: .stopped)
         _ = sessionState.apply(.stopConfirmed(preservedTimerSeconds: preservedTimerSeconds))
@@ -881,5 +899,13 @@ final class AppModel: ObservableObject {
 
     private func recordApp(_ message: String, details: [String: String] = [:]) {
         diagnostics.record(.app, message, details: details)
+    }
+
+    private func activeSession() throws -> any AnovaCookerSession {
+        guard let session else {
+            throw MiniBLEClientError.disconnected("No active connection")
+        }
+
+        return session
     }
 }
