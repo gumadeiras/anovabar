@@ -20,6 +20,8 @@ pub enum Error {
     InvalidFrame,
     #[error("unsupported temperature unit value: {0}")]
     UnsupportedTemperatureUnit(i32),
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
     #[error("missing sensor value: {0}")]
     MissingSensor(&'static str),
     #[error("base64 decode error: {0}")]

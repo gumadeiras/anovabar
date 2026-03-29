@@ -386,6 +386,9 @@ async fn run_mini(args: MiniArgs) -> anovabar::Result<()> {
         MiniCommand::SetTemp(args) => {
             with_mini(args.device, |device| {
                 Box::pin(async move {
+                    let full_state = device.get_full_state().await?;
+                    let unit = full_state.temperature_unit().unwrap_or(TemperatureUnit::Celsius);
+                    validate_mini_setpoint(args.temperature, unit)?;
                     device.set_temperature(args.temperature).await?;
                     println!("setpoint={}", args.temperature);
                     Ok(())
@@ -396,6 +399,9 @@ async fn run_mini(args: MiniArgs) -> anovabar::Result<()> {
         MiniCommand::Start(args) => {
             with_mini(args.device, |device| {
                 Box::pin(async move {
+                    let full_state = device.get_full_state().await?;
+                    let unit = full_state.temperature_unit().unwrap_or(TemperatureUnit::Celsius);
+                    validate_mini_setpoint(args.setpoint, unit)?;
                     let mut options = StartCookOptions::new(args.setpoint);
                     options.timer_seconds = args.timer_seconds;
                     options.cookable_id = args.cookable_id;
@@ -420,6 +426,19 @@ async fn run_mini(args: MiniArgs) -> anovabar::Result<()> {
     }
 
     Ok(())
+}
+
+fn validate_mini_setpoint(value: f64, unit: TemperatureUnit) -> anovabar::Result<()> {
+    let (min, max) = unit.supported_mini_setpoint_range();
+    if (min..=max).contains(&value) {
+        return Ok(());
+    }
+
+    Err(anovabar::Error::InvalidInput(format!(
+        "Mini setpoint must be between {min:.1}{} and {max:.1}{}",
+        unit.as_symbol(),
+        unit.as_symbol()
+    )))
 }
 
 async fn with_nano<F>(options: DeviceOptions, operation: F) -> anovabar::Result<()>

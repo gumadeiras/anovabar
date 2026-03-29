@@ -14,6 +14,13 @@ impl TemperatureUnit {
             Self::Fahrenheit => "F",
         }
     }
+
+    pub fn supported_mini_setpoint_range(self) -> (f64, f64) {
+        match self {
+            Self::Celsius => (0.0, 92.0),
+            Self::Fahrenheit => (32.0, 197.0),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
