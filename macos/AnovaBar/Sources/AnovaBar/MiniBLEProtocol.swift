@@ -26,6 +26,20 @@ enum MiniTemperatureUnit: String, CaseIterable, Identifiable {
             "ºF"
         }
     }
+
+    var supportedSetpointRange: ClosedRange<Double> {
+        switch self {
+        case .celsius:
+            return 0...92
+        case .fahrenheit:
+            return 32...197
+        }
+    }
+
+    var supportedSetpointDescription: String {
+        let range = supportedSetpointRange
+        return "\(MiniFormat.temperature(range.lowerBound))\(symbol) to \(MiniFormat.temperature(range.upperBound))\(symbol)"
+    }
 }
 
 @MainActor
