@@ -220,7 +220,7 @@ impl BleProfile for OriginalPrecisionCookerBleProfile {
             || properties
                 .local_name
                 .as_deref()
-                .map(|name| name.to_ascii_lowercase().contains("anova"))
+                .map(|name| name.to_ascii_lowercase().contains("anova precision cooker"))
                 .unwrap_or(false)
     }
 }
@@ -235,8 +235,12 @@ mod tests {
     use tokio::sync::Mutex;
     use uuid::Uuid;
 
-    use super::{AnovaOriginalPrecisionCooker, OriginalStartCookOptions};
+    use super::{
+        AnovaOriginalPrecisionCooker, OriginalPrecisionCookerBleProfile, OriginalStartCookOptions,
+        ORIGINAL_SERVICE_UUID,
+    };
     use crate::error::Result;
+    use crate::transport::ble::BleProfile;
     use crate::transport::DeviceTransport;
     use crate::types::{OriginalCookerModel, TemperatureUnit};
 
@@ -342,5 +346,22 @@ mod tests {
                 "start time\r",
             ]
         );
+    }
+
+    #[test]
+    fn device_matching_requires_service_or_precise_name() {
+        let mut properties = btleplug::api::PeripheralProperties::default();
+
+        assert!(!OriginalPrecisionCookerBleProfile::matches_device(&properties));
+
+        properties.local_name = Some("Anova Precision Cooker".to_string());
+        assert!(OriginalPrecisionCookerBleProfile::matches_device(&properties));
+
+        properties.local_name = Some("Anova Mini".to_string());
+        assert!(!OriginalPrecisionCookerBleProfile::matches_device(&properties));
+
+        properties.local_name = Some("Unknown".to_string());
+        properties.services.push(ORIGINAL_SERVICE_UUID);
+        assert!(OriginalPrecisionCookerBleProfile::matches_device(&properties));
     }
 }

@@ -29,6 +29,42 @@ enum OriginalCookerModel: String {
     }
 }
 
+@MainActor
+enum OriginalDiscovery {
+    static let defaultName = "Anova Precision Cooker"
+
+    static func matches(localName: String?, peripheralName: String?, advertisedServices: [CBUUID]) -> Bool {
+        let hasOriginalService = advertisedServices.contains(OriginalBLEUUIDs.service)
+        let hasMiniService = advertisedServices.contains(MiniBLEUUIDs.service)
+
+        guard hasOriginalService == false else {
+            return true
+        }
+
+        guard hasMiniService == false else {
+            return false
+        }
+
+        let candidateName = [localName, peripheralName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        let normalizedCandidateName = candidateName?.lowercased()
+
+        guard let normalizedCandidateName else {
+            return false
+        }
+
+        return normalizedCandidateName.contains("anova precision cooker")
+    }
+
+    static func displayName(localName: String?, peripheralName: String?) -> String {
+        [localName, peripheralName]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+            ?? defaultName
+    }
+}
+
 struct OriginalSnapshot {
     let statusResponse: String
     let unitResponse: String

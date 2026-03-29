@@ -300,21 +300,24 @@ extension OriginalBLEClient: @preconcurrency CBCentralManagerDelegate {
         advertisementData: [String: Any],
         rssi _: NSNumber
     ) {
-        let localName = (advertisementData[CBAdvertisementDataLocalNameKey] as? String) ?? peripheral.name ?? "Anova Precision Cooker"
+        let localName = advertisementData[CBAdvertisementDataLocalNameKey] as? String
         let advertisedServices = (advertisementData[CBAdvertisementDataServiceUUIDsKey] as? [CBUUID]) ?? []
-        let hasOriginalService = advertisedServices.contains(OriginalBLEUUIDs.service)
-        let hasMiniService = advertisedServices.contains(MiniBLEUUIDs.service)
-        let looksOriginalByName = localName.lowercased().contains("anova") && !localName.lowercased().contains("mini")
 
-        guard hasOriginalService || (looksOriginalByName && !hasMiniService) else {
+        guard OriginalDiscovery.matches(
+            localName: localName,
+            peripheralName: peripheral.name,
+            advertisedServices: advertisedServices
+        ) else {
             return
         }
+
+        let displayName = OriginalDiscovery.displayName(localName: localName, peripheralName: peripheral.name)
 
         discoveredPeripherals[peripheral.identifier] = DiscoveredPeripheral(
             peripheral: peripheral,
             device: AnovaDiscoveredDevice(
                 id: peripheral.identifier,
-                name: localName,
+                name: displayName,
                 identifier: peripheral.identifier.uuidString,
                 family: .original
             )

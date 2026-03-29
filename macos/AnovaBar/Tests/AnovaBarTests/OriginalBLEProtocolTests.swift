@@ -1,4 +1,5 @@
 import Testing
+@preconcurrency import CoreBluetooth
 @testable import AnovaBar
 
 struct OriginalBLEProtocolTests {
@@ -24,5 +25,39 @@ struct OriginalBLEProtocolTests {
         #expect(snapshot.targetTemperatureValue == 55.0)
         #expect(snapshot.timerInitialSeconds == 2520)
         #expect(snapshot.isCooking)
+    }
+
+    @MainActor
+    @Test
+    func originalDiscoveryRequiresRealSignal() {
+        #expect(OriginalDiscovery.matches(
+            localName: nil,
+            peripheralName: nil,
+            advertisedServices: []
+        ) == false)
+
+        #expect(OriginalDiscovery.matches(
+            localName: "Anova Precision Cooker",
+            peripheralName: nil,
+            advertisedServices: []
+        ))
+
+        #expect(OriginalDiscovery.matches(
+            localName: nil,
+            peripheralName: "Anova Precision Cooker",
+            advertisedServices: []
+        ))
+
+        #expect(OriginalDiscovery.matches(
+            localName: "Unknown Device",
+            peripheralName: nil,
+            advertisedServices: [OriginalBLEUUIDs.service]
+        ))
+
+        #expect(OriginalDiscovery.matches(
+            localName: "Anova Mini",
+            peripheralName: nil,
+            advertisedServices: [MiniBLEUUIDs.service]
+        ) == false)
     }
 }
