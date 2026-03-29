@@ -425,28 +425,28 @@ struct MenuBarContentView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            HStack(spacing: 8) {
-                TextField("Kitchen Mini", text: $model.aliasText)
-                    .settingsFieldStyle()
-                    .frame(maxWidth: .infinity)
+            TextField("Kitchen Mini", text: $model.aliasText)
+                .settingsFieldStyle()
+                .frame(maxWidth: .infinity)
 
-                HStack(spacing: 6) {
-                    Button {
-                        model.clearAlias()
-                    } label: {
-                        Text("Clear")
-                            .frame(width: UI.settingsActionWidth)
-                    }
-                    .actionButton()
+            HStack(spacing: 6) {
+                Spacer(minLength: 0)
 
-                    Button {
-                        model.saveAlias()
-                    } label: {
-                        Text("Save")
-                            .frame(width: UI.settingsActionWidth)
-                    }
-                    .prominentActionButton()
+                Button {
+                    model.clearAlias()
+                } label: {
+                    Text("Clear")
+                        .frame(width: UI.settingsActionWidth)
                 }
+                .actionButton()
+
+                Button {
+                    model.saveAlias()
+                } label: {
+                    Text("Save")
+                        .frame(width: UI.settingsActionWidth)
+                }
+                .prominentActionButton()
             }
         }
         .disabled(model.selectedDeviceID == nil && model.connectedDevice == nil)
