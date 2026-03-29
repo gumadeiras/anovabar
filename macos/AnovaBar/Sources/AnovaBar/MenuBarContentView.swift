@@ -3,7 +3,7 @@ import SwiftUI
 
 struct MenuBarContentView: View {
     enum UI {
-        static let width: CGFloat = 336
+        static let width: CGFloat = 320
         static let panelSpacing: CGFloat = 10
         static let panelPadding: CGFloat = 12
         static let rowLabelWidth: CGFloat = 74
