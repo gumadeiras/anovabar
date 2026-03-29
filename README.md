@@ -8,6 +8,11 @@ Bluetooth control for Anova cookers, with a macOS menu bar app and a Rust CLI.
 
 Sous vide, but make it tiny and fast.
 
+<img width="366" height="313" alt="image" src="https://github.com/user-attachments/assets/13ae83e3-83a0-4e3f-b16a-02c98ab1ea29" />
+
+<img width="366" height="480" alt="image" src="https://github.com/user-attachments/assets/f7620af6-d3a9-4539-a724-2bd0e924c55d" />
+
+
 ## What It Does
 
 - Scan and connect to supported Anova cookers
