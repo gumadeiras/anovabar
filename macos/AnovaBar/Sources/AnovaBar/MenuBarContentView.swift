@@ -6,8 +6,11 @@ struct MenuBarContentView: View {
         static let width: CGFloat = 392
         static let panelSpacing: CGFloat = 10
         static let panelPadding: CGFloat = 12
-        static let rowLabelWidth: CGFloat = 54
+        static let rowLabelWidth: CGFloat = 82
+        static let controlFieldWidth: CGFloat = 168
         static let unitPickerWidth: CGFloat = 118
+        static let headerIconButtonSize: CGFloat = 26
+        static let headerIconGlyphSize: CGFloat = 13
         static let accent = Color(red: 0.88, green: 0.43, blue: 0.14)
         static let iconGradient = [
             Color(red: 0.95, green: 0.60, blue: 0.14),
@@ -102,9 +105,7 @@ struct MenuBarContentView: View {
                 Spacer()
 
                 Button(model.isScanning ? "Scanning…" : "Scan", action: asyncAction(model.scan))
-                    .buttonStyle(.borderedProminent)
-                    .controlSize(.regular)
-                    .tint(UI.accent)
+                    .prominentActionButton()
                     .disabled(model.isScanning || model.isBusy)
             }
 
@@ -124,9 +125,7 @@ struct MenuBarContentView: View {
                     Spacer()
 
                     Button("Connect", action: asyncAction(model.connectSelectedDevice))
-                        .buttonStyle(.borderedProminent)
-                        .controlSize(.regular)
-                        .tint(UI.accent)
+                        .prominentActionButton()
                         .disabled(model.selectedDeviceID == nil || model.isBusy)
                 }
             }
@@ -210,7 +209,7 @@ struct MenuBarContentView: View {
                 .frame(width: UI.unitPickerWidth)
             }
 
-            editableRow(label: "Setpoint") {
+            editableRow(label: "Temp (\(model.selectedUnit.symbol))") {
                 TextField("", text: $model.targetTemperatureText)
                     .fieldStyle()
 
@@ -218,13 +217,9 @@ struct MenuBarContentView: View {
                     .actionButton()
             }
 
-            editableRow(label: "Timer") {
+            editableRow(label: "Timer (min)") {
                 TextField("", text: $model.timerMinutesText)
                     .fieldStyle()
-
-                Text("min")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.secondary)
 
                 Button("Set", action: asyncAction(model.applyTimer))
                     .actionButton()
@@ -273,8 +268,7 @@ struct MenuBarContentView: View {
             Button("Quit") {
                 NSApplication.shared.terminate(nil)
             }
-            .buttonStyle(.bordered)
-            .controlSize(.small)
+            .actionButton()
 
             Spacer()
         }
@@ -297,8 +291,7 @@ struct MenuBarContentView: View {
                 Button("Done") {
                     showingDeviceDetails = false
                 }
-                .buttonStyle(.bordered)
-                .controlSize(.small)
+                .actionButton()
             }
 
             if let device = model.connectedDevice {
@@ -385,7 +378,7 @@ struct MenuBarContentView: View {
             Text(label)
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
-                .frame(width: UI.rowLabelWidth, alignment: .leading)
+                .frame(width: UI.rowLabelWidth, alignment: .trailing)
 
             content()
         }
@@ -435,11 +428,12 @@ struct MenuBarContentView: View {
     private func iconButton(systemName: String, help: String, action: @escaping () -> Void) -> some View {
         Button(action: action) {
             Image(systemName: systemName)
-                .font(.system(size: 12, weight: .semibold))
-                .frame(width: 14, height: 14)
+                .font(.system(size: UI.headerIconGlyphSize, weight: .semibold))
+                .frame(width: UI.headerIconGlyphSize, height: UI.headerIconGlyphSize, alignment: .center)
+                .frame(width: UI.headerIconButtonSize, height: UI.headerIconButtonSize, alignment: .center)
+                .contentShape(Rectangle())
         }
-        .buttonStyle(.bordered)
-        .controlSize(.small)
+        .buttonStyle(AppButtonStyle(variant: .icon))
         .help(help)
     }
 
@@ -484,25 +478,120 @@ private extension View {
     func fieldStyle() -> some View {
         textFieldStyle(.plain)
             .font(.system(size: 13))
+            .frame(width: MenuBarContentView.UI.controlFieldWidth)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
             .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
     func actionButton() -> some View {
-        buttonStyle(.bordered)
-            .controlSize(.small)
-            .font(.system(size: 13, weight: .semibold))
+        buttonStyle(AppButtonStyle(variant: .secondary))
+    }
+
+    func prominentActionButton() -> some View {
+        buttonStyle(AppButtonStyle(variant: .prominent))
     }
 
     func primaryActionButton() -> some View {
-        buttonStyle(.borderedProminent)
-            .controlSize(.small)
-            .font(.system(size: 13, weight: .semibold))
-            .tint(MenuBarContentView.UI.accent)
+        prominentActionButton()
     }
 
     func sectionTitle() -> some View {
         font(.system(size: 13, weight: .semibold))
+    }
+}
+
+private enum AppButtonVariant {
+    case secondary
+    case prominent
+    case icon
+}
+
+private struct AppButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+
+    let variant: AppButtonVariant
+
+    func makeBody(configuration: Configuration) -> some View {
+        let metrics = Self.metrics(for: variant)
+
+        configuration.label
+            .font(.system(size: metrics.fontSize, weight: .semibold))
+            .foregroundStyle(foregroundColor(isPressed: configuration.isPressed))
+            .padding(.horizontal, metrics.horizontalPadding)
+            .padding(.vertical, metrics.verticalPadding)
+            .background(
+                RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+                    .fill(backgroundFill(isPressed: configuration.isPressed))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: metrics.cornerRadius, style: .continuous)
+                            .strokeBorder(borderColor(isPressed: configuration.isPressed), lineWidth: 1)
+                    )
+            )
+            .scaleEffect(configuration.isPressed ? 0.98 : 1)
+            .opacity(isEnabled ? 1 : 0.48)
+            .animation(.easeOut(duration: 0.12), value: configuration.isPressed)
+    }
+
+    private func foregroundColor(isPressed: Bool) -> Color {
+        switch variant {
+        case .prominent:
+            return .white.opacity(isPressed ? 0.92 : 0.98)
+        case .secondary, .icon:
+            return .white.opacity(isPressed ? 0.88 : 0.96)
+        }
+    }
+
+    private func backgroundFill(isPressed: Bool) -> LinearGradient {
+        switch variant {
+        case .prominent:
+            return LinearGradient(
+                colors: isPressed
+                    ? [
+                        MenuBarContentView.UI.accent.opacity(0.88),
+                        Color(red: 0.72, green: 0.34, blue: 0.09).opacity(0.84),
+                    ]
+                    : [
+                        MenuBarContentView.UI.accent,
+                        Color(red: 0.72, green: 0.34, blue: 0.09),
+                    ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .secondary, .icon:
+            return LinearGradient(
+                colors: isPressed
+                    ? [
+                        Color.white.opacity(0.16),
+                        Color.white.opacity(0.09),
+                    ]
+                    : [
+                        Color.white.opacity(0.10),
+                        Color.white.opacity(0.05),
+                    ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
+    }
+
+    private func borderColor(isPressed: Bool) -> Color {
+        switch variant {
+        case .prominent:
+            return Color.white.opacity(isPressed ? 0.12 : 0.10)
+        case .secondary, .icon:
+            return Color.white.opacity(isPressed ? 0.16 : 0.10)
+        }
+    }
+
+    private static func metrics(for variant: AppButtonVariant) -> (horizontalPadding: CGFloat, verticalPadding: CGFloat, cornerRadius: CGFloat, fontSize: CGFloat) {
+        switch variant {
+        case .secondary:
+            return (10, 6, 10, 13)
+        case .prominent:
+            return (12, 7, 10, 13)
+        case .icon:
+            return (0, 0, 9, 13)
+        }
     }
 }
