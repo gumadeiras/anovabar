@@ -112,6 +112,8 @@ private final class MiniCookerSession: AnovaCookerSession {
     func stopCook() async throws {
         try await client.stopCook()
     }
+
+    func clearAlarmIfSupported() async throws {}
 }
 
 @MainActor
@@ -155,5 +157,9 @@ private final class OriginalCookerSession: AnovaCookerSession {
 
     func stopCook() async throws {
         try await client.stopCook()
+    }
+
+    func clearAlarmIfSupported() async throws {
+        try await client.clearAlarmIfSupported()
     }
 }

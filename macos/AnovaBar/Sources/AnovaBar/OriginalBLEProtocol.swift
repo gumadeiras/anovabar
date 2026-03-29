@@ -43,6 +43,39 @@ enum OriginalCommandPolicy {
             || normalized == "clear alarm"
             || normalized.hasPrefix("set ")
     }
+
+    static func expectsStructuredResponse(for command: String) -> Bool {
+        !acceptsMissingResponse(for: command)
+    }
+
+    static func matchesResponse(_ response: String, for command: String) -> Bool {
+        let normalizedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let normalizedResponse = response.trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines)).lowercased()
+
+        guard !normalizedResponse.isEmpty else {
+            return false
+        }
+
+        switch normalizedCommand {
+        case "status":
+            return normalizedResponse.contains("running") || normalizedResponse.contains("stopped")
+        case "read unit":
+            return normalizedResponse == "c" || normalizedResponse == "f"
+        case "read temp", "read set temp":
+            return OriginalParser.temperature(from: normalizedResponse) != nil
+        case "read timer":
+            return OriginalParser.timerMinutes(from: normalizedResponse) != nil
+                || normalizedResponse.contains("stopped")
+                || normalizedResponse.contains("running")
+                || normalizedResponse.contains("complete")
+        case "get id card":
+            return normalizedResponse.contains("anova")
+        case "version":
+            return normalizedResponse.hasPrefix("ver") || normalizedResponse.hasPrefix("version")
+        default:
+            return true
+        }
+    }
 }
 
 @MainActor

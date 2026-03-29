@@ -984,7 +984,9 @@ final class AppModel: ObservableObject {
             _ = sessionState.apply(.autoStopRequested)
         }
         refreshTimerMinutesTextFromSession()
-        try await activeSession().stopCook()
+        let session = try activeSession()
+        try await session.stopCook()
+        try? await session.clearAlarmIfSupported()
         persistCookState(targetTemperature: observedState.lastKnownTargetTemperature)
         try await syncDeviceState(after: .stopped)
         _ = sessionState.apply(.stopConfirmed(preservedTimerSeconds: preservedTimerSeconds))

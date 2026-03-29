@@ -103,4 +103,5 @@ protocol AnovaCookerSession: AnyObject {
     func setTemperature(_ value: Double) async throws
     func startCook(setpoint: Double, timerSeconds: Int) async throws
     func stopCook() async throws
+    func clearAlarmIfSupported() async throws
 }

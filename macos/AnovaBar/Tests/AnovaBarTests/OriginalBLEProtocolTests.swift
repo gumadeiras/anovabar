@@ -70,4 +70,15 @@ struct OriginalBLEProtocolTests {
         #expect(OriginalCommandPolicy.timeout(for: "set timer 30") == 1.5)
         #expect(OriginalCommandPolicy.timeout(for: "status") == 15)
     }
+
+    @Test
+    func commandPolicyMatchesStructuredResponses() {
+        #expect(OriginalCommandPolicy.matchesResponse("running", for: "status"))
+        #expect(OriginalCommandPolicy.matchesResponse("stopped", for: "status"))
+        #expect(OriginalCommandPolicy.matchesResponse("c", for: "read unit"))
+        #expect(OriginalCommandPolicy.matchesResponse("43.0", for: "read temp"))
+        #expect(OriginalCommandPolicy.matchesResponse("0 stopped", for: "read timer"))
+        #expect(OriginalCommandPolicy.matchesResponse("start", for: "status") == false)
+        #expect(OriginalCommandPolicy.matchesResponse("stop time", for: "read unit") == false)
+    }
 }

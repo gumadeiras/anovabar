@@ -14,11 +14,15 @@ final class OriginalBLEClient: NSObject {
     private var servicesContinuation: CheckedContinuation<Void, Error>?
     private var characteristicsContinuation: CheckedContinuation<Void, Error>?
     private var commandContinuation: CheckedContinuation<String, Error>?
+    private var commandTimeoutTask: Task<Void, Never>?
+    private var commandRequestID: UInt64 = 0
+    private var activeCommand: String?
 
     private var discoveredPeripherals: [UUID: DiscoveredPeripheral] = [:]
     private var connectedPeripheral: CBPeripheral?
     private var commandCharacteristic: CBCharacteristic?
     private var responseBuffer = Data()
+    private var detectedModel: OriginalCookerModel?
     private let diagnostics: MiniDiagnosticsStore
 
     init(diagnostics: MiniDiagnosticsStore) {
@@ -100,6 +104,7 @@ final class OriginalBLEClient: NSObject {
     func systemInfo() async throws -> JSONDictionary {
         let cookerID = try await sendCommand("get id card")
         let model = OriginalCookerModel.detect(from: cookerID)
+        detectedModel = model
         var dictionary: JSONDictionary = [
             "cookerId": cookerID,
             "model": model.rawValue,
@@ -136,6 +141,14 @@ final class OriginalBLEClient: NSObject {
         _ = try await sendCommand("stop")
     }
 
+    func clearAlarmIfSupported() async throws {
+        guard try await currentModel() == .wifi900W else {
+            return
+        }
+
+        _ = try await sendCommand("clear alarm")
+    }
+
     private func sendCommand(_ command: String, timeout seconds: TimeInterval? = nil) async throws -> String {
         guard let characteristic = commandCharacteristic else {
             throw MiniBLEClientError.missingCharacteristic("command")
@@ -153,17 +166,27 @@ final class OriginalBLEClient: NSObject {
                 return
             }
 
+            commandRequestID &+= 1
+            let requestID = commandRequestID
             commandContinuation = continuation
+            activeCommand = command
             responseBuffer.removeAll()
             peripheral.writeValue(data, for: characteristic, type: .withoutResponse)
 
-            Task { @MainActor [weak self] in
+            commandTimeoutTask?.cancel()
+            commandTimeoutTask = Task { @MainActor [weak self] in
                 try? await Task.sleep(for: .seconds(timeout))
-                guard let self, let pending = self.commandContinuation else {
+                guard let self,
+                      let pending = self.commandContinuation,
+                      self.commandRequestID == requestID,
+                      self.activeCommand == command
+                else {
                     return
                 }
 
                 self.commandContinuation = nil
+                self.commandTimeoutTask = nil
+                self.activeCommand = nil
                 self.responseBuffer.removeAll()
                 if acceptsMissingResponse {
                     self.recordBLE("writeTimeoutAccepted", details: [
@@ -251,8 +274,12 @@ final class OriginalBLEClient: NSObject {
         }
 
         connectedPeripheral = nil
+        detectedModel = nil
         commandCharacteristic = nil
         responseBuffer.removeAll()
+        activeCommand = nil
+        commandTimeoutTask?.cancel()
+        commandTimeoutTask = nil
         commandContinuation?.resume(throwing: MiniBLEClientError.disconnected("The device disconnected."))
         commandContinuation = nil
         peripheral.delegate = nil
@@ -263,7 +290,23 @@ final class OriginalBLEClient: NSObject {
     }
 
     private func completeResponseIfNeeded(with latestChunk: Data) {
-        guard let continuation = commandContinuation else {
+        guard let continuation = commandContinuation,
+              let activeCommand
+        else {
+            return
+        }
+
+        let latestResponse = String(data: latestChunk, encoding: .utf8)?
+            .trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines)) ?? ""
+        if OriginalCommandPolicy.expectsStructuredResponse(for: activeCommand),
+           !OriginalCommandPolicy.matchesResponse(latestResponse, for: activeCommand) {
+            recordBLE("notifyIgnored", details: [
+                "characteristic": "command",
+                "payload": latestResponse,
+                "activeCommand": activeCommand,
+                "family": "original",
+            ])
+            responseBuffer.removeAll()
             return
         }
 
@@ -273,10 +316,24 @@ final class OriginalBLEClient: NSObject {
         }
 
         commandContinuation = nil
+        commandTimeoutTask?.cancel()
+        commandTimeoutTask = nil
+        self.activeCommand = nil
         let response = String(data: responseBuffer, encoding: .utf8)?
             .trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines)) ?? ""
         responseBuffer.removeAll()
         continuation.resume(returning: response)
+    }
+
+    private func currentModel() async throws -> OriginalCookerModel {
+        if let detectedModel {
+            return detectedModel
+        }
+
+        let cookerID = try await sendCommand("get id card")
+        let model = OriginalCookerModel.detect(from: cookerID)
+        detectedModel = model
+        return model
     }
 
     private func recordBLE(_ message: String, details: [String: String] = [:]) {
@@ -404,11 +461,19 @@ extension OriginalBLEClient: @preconcurrency CBPeripheralDelegate {
         if let error {
             commandContinuation?.resume(throwing: error)
             commandContinuation = nil
+            commandTimeoutTask?.cancel()
+            commandTimeoutTask = nil
+            activeCommand = nil
             responseBuffer.removeAll()
             return
         }
 
         guard let data = characteristic.value else {
+            return
+        }
+
+        guard commandContinuation != nil else {
+            recordBLE("notifyUnmatched", details: ["characteristic": "command", "payload": String(data: data, encoding: .utf8) ?? data.base64EncodedString(), "family": "original"])
             return
         }
 
