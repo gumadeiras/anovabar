@@ -8,7 +8,7 @@ struct MenuBarContentView: View {
         static let panelPadding: CGFloat = 12
         static let rowLabelWidth: CGFloat = 74
         static let controlFieldWidth: CGFloat = 150
-        static let settingsActionWidth: CGFloat = 70
+        static let settingsActionWidth: CGFloat = 50
         static let unitPickerWidth: CGFloat = 118
         static let headerIconButtonSize: CGFloat = 26
         static let headerIconGlyphSize: CGFloat = 13
