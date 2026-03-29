@@ -28,7 +28,7 @@ jobs:
           VERSION="${GITHUB_REF_NAME#v}"
           echo "ANOVABAR_RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
 
-      - name: Validate release secrets
+      - name: Determine release signing mode
         run: |
           missing=()
           for required_var in \
@@ -43,10 +43,20 @@ jobs:
               missing+=("$required_var")
             fi
           done
-          if (( ${#missing[@]} > 0 )); then
-            printf 'Missing release secrets:\n' >&2
-            printf '  - %s\n' "${missing[@]}" >&2
-            exit 1
+
+          if (( ${#missing[@]} == 0 )); then
+            echo "ANOVABAR_RELEASE_SIGNING_MODE=signed" >> "$GITHUB_ENV"
+            echo "ANOVABAR_RELEASE_SECURITY_LABEL=signed and notarized" >> "$GITHUB_ENV"
+            echo "Release mode: signed and notarized" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "ANOVABAR_RELEASE_SIGNING_MODE=unsigned" >> "$GITHUB_ENV"
+            echo "ANOVABAR_RELEASE_SECURITY_LABEL=unsigned (ad hoc signed, not notarized)" >> "$GITHUB_ENV"
+            {
+              echo "Release mode: unsigned"
+              echo
+              echo "Missing Apple signing secrets:"
+              printf -- "- %s\n" "${missing[@]}"
+            } >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Check version files
@@ -59,6 +69,7 @@ jobs:
         run: swift test --package-path macos/AnovaBar
 
       - name: Import Developer ID certificate
+        if: env.ANOVABAR_RELEASE_SIGNING_MODE == 'signed'
         env:
           KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
         run: |
@@ -86,12 +97,13 @@ jobs:
           security list-keychains -d user -s "$KEYCHAIN_PATH" $CURRENT_KEYCHAINS
           echo "ANOVABAR_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
-      - name: Build signed app bundles
+      - name: Build app bundles
         run: |
           ./macos/build-menubar-app.sh
           ./macos/build-cli-app.sh
 
       - name: Notarize macOS app bundles
+        if: env.ANOVABAR_RELEASE_SIGNING_MODE == 'signed'
         run: ./scripts/notarize-macos-apps.sh
 
       - name: Package release assets
@@ -99,18 +111,37 @@ jobs:
 
       - name: Write release notes
         run: |
-          cat > dist/release/RELEASE_NOTES.md <<EOF
-          AnovaBar ${ANOVABAR_RELEASE_VERSION}
+          printf '%s\n' \
+            "AnovaBar ${ANOVABAR_RELEASE_VERSION}" \
+            "" \
+            "Assets:" \
+            "- \`AnovaBar.app.zip\`: menu bar app bundle" \
+            "- \`anovabar-cli-macos.zip\`: CLI launcher plus \`AnovaBarCLI.app\`" \
+            "- \`SHA256SUMS.txt\`: SHA-256 checksums for both archives" \
+            "" \
+            "Install:" \
+            "- Menu bar app: download \`AnovaBar.app.zip\`, unzip it, and move \`AnovaBar.app\` to \`/Applications\`" \
+            "- CLI: download \`anovabar-cli-macos.zip\`, unzip it, keep \`anovabar\` next to \`AnovaBarCLI.app\`, and run \`./anovabar --help\`" \
+            > dist/release/RELEASE_NOTES.md
 
-          Assets:
-          - \`AnovaBar.app.zip\`: notarized menu bar app bundle
-          - \`anovabar-cli-macos.zip\`: CLI launcher plus \`AnovaBarCLI.app\`
-          - \`SHA256SUMS.txt\`: SHA-256 checksums for both archives
-
-          Install:
-          - Menu bar app: download \`AnovaBar.app.zip\`, unzip it, and move \`AnovaBar.app\` to \`/Applications\`
-          - CLI: download \`anovabar-cli-macos.zip\`, unzip it, keep \`anovabar\` next to \`AnovaBarCLI.app\`, and run \`./anovabar --help\`
-          EOF
+          if [[ "$ANOVABAR_RELEASE_SIGNING_MODE" == "signed" ]]; then
+            printf '%s\n' \
+              "" \
+              "Release status:" \
+              "- These macOS artifacts are signed with Developer ID and notarized." \
+              >> dist/release/RELEASE_NOTES.md
+          else
+            printf '%s\n' \
+              "" \
+              "Release status:" \
+              "- These macOS artifacts are unsigned for public distribution and are not notarized." \
+              "- macOS may warn or block them on first launch." \
+              "" \
+              "Unsigned install notes:" \
+              "- For \`AnovaBar.app\`, right-click the app and choose \`Open\`, or use Privacy & Security -> Open Anyway after a blocked launch." \
+              "- For the CLI bundle, keep \`anovabar\` next to \`AnovaBarCLI.app\`. If macOS blocks the app bundle, clear the quarantine attribute or open it once via Finder." \
+              >> dist/release/RELEASE_NOTES.md
+          fi
 
       - name: Publish draft GitHub release
         run: |

@@ -38,9 +38,13 @@ That writes:
 - `dist/release/anovabar-cli-macos.zip`
 - `dist/release/SHA256SUMS.txt`
 
-Public GitHub releases are automated by `.github/workflows/release.yml` and trigger on tags like `v0.2.0`. The workflow checks that the tag matches the version files, runs the Rust and Swift tests, builds signed app bundles, notarizes them, packages the release assets, and creates or updates a draft GitHub Release.
+Public GitHub releases are automated by `.github/workflows/release.yml` and trigger on tags like `v0.2.0`. The workflow checks that the tag matches the version files, runs the Rust and Swift tests, packages the release assets, and creates or updates a draft GitHub Release.
 
-Required GitHub Actions secrets:
+If Apple signing secrets are configured, the workflow also signs the app bundles with Developer ID and notarizes them before publishing.
+
+If Apple signing secrets are not configured, the workflow still publishes a release using locally valid ad hoc signatures. Those builds are not notarized, and macOS may warn or block them on first launch.
+
+Apple signing secrets are optional:
 
 - `ANOVABAR_CODESIGN_IDENTITY`: Developer ID Application certificate name, for example `Developer ID Application: Your Name (TEAMID)`
 - `ANOVABAR_MACOS_CERTIFICATE_P12_BASE64`: base64-encoded `.p12` certificate export
