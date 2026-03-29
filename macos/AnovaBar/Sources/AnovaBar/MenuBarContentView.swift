@@ -307,25 +307,45 @@ struct MenuBarContentView: View {
                 .foregroundStyle(.secondary)
                 .frame(width: UI.rowLabelWidth, alignment: .leading)
 
-            Picker(
-                "Device",
-                selection: Binding(
-                    get: { model.selectedDeviceID },
-                    set: { model.selectDevice($0) }
-                )
-            ) {
+            Menu {
                 ForEach(model.devices) { device in
-                    Text(model.label(for: device))
-                        .tag(Optional(device.id))
+                    Button {
+                        model.selectDevice(device.id)
+                    } label: {
+                        HStack {
+                            Text(model.label(for: device))
+                            if model.selectedDeviceID == device.id {
+                                Spacer()
+                                Image(systemName: "checkmark")
+                            }
+                        }
+                    }
+                }
+            } label: {
+                HStack(spacing: 8) {
+                    Text(selectedDeviceMenuTitle)
+                        .lineLimit(1)
+                        .truncationMode(.tail)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+
+                    Image(systemName: "chevron.up.chevron.down")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.secondary)
                 }
             }
-            .pickerStyle(.menu)
-            .labelsHidden()
+            .menuStyle(.borderlessButton)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .selectionFieldStyle()
         }
+    }
+
+    private var selectedDeviceMenuTitle: String {
+        if let selectedID = model.selectedDeviceID,
+           let selectedDevice = model.devices.first(where: { $0.id == selectedID }) {
+            return model.label(for: selectedDevice)
+        }
+
+        return "Select a device"
     }
 
     private func valueRow(title: String, value: String) -> some View {
@@ -584,6 +604,18 @@ private extension View {
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
             .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    func selectionFieldStyle() -> some View {
+        buttonStyle(.plain)
+            .font(.system(size: 13))
+            .padding(.horizontal, 10)
+            .padding(.vertical, 7)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+            .overlay(
+                RoundedRectangle(cornerRadius: 10, style: .continuous)
+                    .strokeBorder(Color.white.opacity(0.06), lineWidth: 1)
+            )
     }
 
     func actionButton() -> some View {
