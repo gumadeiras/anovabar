@@ -70,7 +70,9 @@ struct MenuBarContentView: View {
                 identityPanel
                 readingsPanel
                 controlsPanel
-                diagnosticsPanel
+                if model.isDebugEnabled {
+                    diagnosticsPanel
+                }
                 footerRow
             }
             .padding(UI.panelPadding)
@@ -291,6 +293,7 @@ struct MenuBarContentView: View {
             }
 
             renamePanel
+            debugPanel
             footerRow
         }
         .padding(UI.panelPadding)
@@ -425,6 +428,36 @@ struct MenuBarContentView: View {
             }
         }
         .disabled(model.selectedDeviceID == nil && model.connectedDevice == nil)
+        .padding(UI.panelPadding)
+        .panelBackground()
+    }
+
+    private var debugPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(alignment: .top, spacing: UI.panelSpacing) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Debug Mode")
+                        .sectionTitle()
+                    Text("Show System Info, BLE Trace, and BLE Payloads in the main view.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Spacer(minLength: 0)
+
+                Toggle(
+                    "Debug Mode",
+                    isOn: Binding(
+                        get: { model.isDebugEnabled },
+                        set: { model.setDebugEnabled($0) }
+                    )
+                )
+                .labelsHidden()
+                .toggleStyle(.switch)
+                .controlSize(.regular)
+            }
+        }
         .padding(UI.panelPadding)
         .panelBackground()
     }

@@ -4,6 +4,7 @@ import Foundation
 final class AppModel: ObservableObject {
     private static let aliasStorageKey = "deviceAliases"
     private static let cookStateStorageKey = "deviceCookState"
+    private static let debugEnabledStorageKey = "debugEnabled"
 
     private struct PersistedCookState: Codable {
         var targetTemperature: Double?
@@ -91,6 +92,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var isScanning = false
     @Published private(set) var hasCompletedScan = false
     @Published private(set) var bleTraceText = MiniDiagnosticsStore.emptyText
+    @Published var isDebugEnabled: Bool
     @Published var targetTemperatureText = "60.0"
     @Published var timerMinutesText = "0"
     @Published var selectedUnit: MiniTemperatureUnit = .celsius
@@ -114,6 +116,7 @@ final class AppModel: ObservableObject {
         self.diagnostics = MiniDiagnosticsStore()
         self.client = MiniBLEClient(diagnostics: diagnostics)
         self.deviceAliases = defaults.dictionary(forKey: Self.aliasStorageKey) as? [String: String] ?? [:]
+        self.isDebugEnabled = defaults.object(forKey: Self.debugEnabledStorageKey) as? Bool ?? false
         if let data = defaults.data(forKey: Self.cookStateStorageKey),
            let decoded = try? JSONDecoder().decode([String: PersistedCookState].self, from: data) {
             self.deviceCookState = decoded
@@ -193,6 +196,16 @@ final class AppModel: ObservableObject {
 
     var canStopCook: Bool {
         sessionState.enablesStopAction || observedState.snapshot?.isCooking == true
+    }
+
+    func setDebugEnabled(_ isEnabled: Bool) {
+        guard isDebugEnabled != isEnabled else {
+            return
+        }
+
+        isDebugEnabled = isEnabled
+        defaults.set(isEnabled, forKey: Self.debugEnabledStorageKey)
+        recordApp("debugModeChanged enabled=\(isEnabled)")
     }
 
     func loadIfNeeded() async {
