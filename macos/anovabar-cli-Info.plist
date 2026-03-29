@@ -10,6 +10,8 @@
     <string>AnovaBar CLI</string>
     <key>CFBundleExecutable</key>
     <string>anovabar</string>
+    <key>CFBundleIconFile</key>
+    <string>AnovaBar.icns</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
     <key>CFBundlePackageType</key>

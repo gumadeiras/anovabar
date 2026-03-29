@@ -6,14 +6,19 @@ ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUNDLE_DIR="$ROOT_DIR/dist/AnovaBarCLI.app"
 LAUNCHER_PATH="$ROOT_DIR/dist/anovabar"
 EXECUTABLE_NAME="anovabar"
+ICON_SOURCE="$ROOT_DIR/assets/anovabar-icon.png"
+ICON_PATH="$BUNDLE_DIR/Contents/Resources/AnovaBar.icns"
 
 cargo build --manifest-path "$ROOT_DIR/Cargo.toml" --release
 
 rm -rf "$BUNDLE_DIR"
-mkdir -p "$BUNDLE_DIR/Contents/MacOS"
+mkdir -p "$BUNDLE_DIR/Contents/MacOS" "$BUNDLE_DIR/Contents/Resources"
 
 cp "$ROOT_DIR/target/release/$EXECUTABLE_NAME" "$BUNDLE_DIR/Contents/MacOS/$EXECUTABLE_NAME"
 cp "$ROOT_DIR/macos/anovabar-cli-Info.plist" "$BUNDLE_DIR/Contents/Info.plist"
+if [[ -f "$ICON_SOURCE" && -x "$ROOT_DIR/macos/build-app-icon.sh" ]]; then
+    "$ROOT_DIR/macos/build-app-icon.sh" "$ICON_SOURCE" "$ICON_PATH"
+fi
 
 codesign --force --deep --sign - "$BUNDLE_DIR"
 

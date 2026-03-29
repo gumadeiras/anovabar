@@ -8,6 +8,8 @@
     <string>AnovaBar</string>
     <key>CFBundleExecutable</key>
     <string>AnovaBar</string>
+    <key>CFBundleIconFile</key>
+    <string>AnovaBar.icns</string>
     <key>CFBundleIdentifier</key>
     <string>io.github.gumadeiras.anovabar</string>
     <key>CFBundleInfoDictionaryVersion</key>
