@@ -248,6 +248,10 @@ struct MiniSnapshot {
         MiniJSON.string(in: timer, keys: ["mode", "state", "status", "timerState"])?.lowercased()
     }
 
+    var stateMode: String? {
+        MiniJSON.string(in: state, keys: ["mode", "state", "status"])?.lowercased()
+    }
+
     var timerHasRunningSignal: Bool {
         let activeValues = ["cook", "cooking", "running", "active"]
 
@@ -279,20 +283,83 @@ struct MiniSnapshot {
         return false
     }
 
-    var isCooking: Bool {
-        let activeValues = ["cook", "cooking", "running", "active"]
+    var timerHasCompleted: Bool {
+        let completedValues = ["complete", "completed", "done", "finished"]
 
-        if let stateMode = MiniJSON.string(in: state, keys: ["mode", "state", "status"])?.lowercased(),
-           activeValues.contains(stateMode) {
-            return true
-        }
-
-        if let timerMode,
-           activeValues.contains(timerMode) {
+        if let timerMode, completedValues.contains(timerMode) {
             return true
         }
 
         return false
+    }
+
+    var stateHasCookingSignal: Bool {
+        let activeValues = ["cook", "cooking", "running", "active"]
+
+        if let stateMode, activeValues.contains(stateMode) {
+            return true
+        }
+
+        return false
+    }
+
+    var activitySourceLabel: String {
+        if stateHasCookingSignal {
+            return "state"
+        }
+
+        if timerHasRunningSignal {
+            return "timer"
+        }
+
+        return "none"
+    }
+
+    var timerSemanticLabel: String {
+        if timerHasCompleted {
+            return "completed timer"
+        }
+
+        if timerHasRunningSignal {
+            return "live timer"
+        }
+
+        if stateHasCookingSignal, timerInitialSeconds != nil {
+            return "configured duration"
+        }
+
+        if timerInitialSeconds != nil {
+            return "configured duration"
+        }
+
+        return "unknown"
+    }
+
+    var isCooking: Bool {
+        if stateHasCookingSignal {
+            return true
+        }
+
+        if stateMode == nil, timerHasRunningSignal {
+            return true
+        }
+
+        return false
+    }
+
+    var interpretation: JSONDictionary {
+        [
+            "isCooking": isCooking,
+            "activitySource": activitySourceLabel,
+            "stateMode": stateMode ?? "unknown",
+            "timerMode": timerMode ?? "unknown",
+            "timerMeaning": timerSemanticLabel,
+            "note": timerHasCompleted
+                ? "The timer payload reports completion. If state.mode is still cook, the device has not yet transitioned to stopped."
+                : stateHasCookingSignal && timerSemanticLabel == "configured duration"
+                ? "Cook activity is coming from state.mode; timer payload appears to describe configured duration rather than a live running/idle state."
+                : "Cook activity and timer semantics are inferred from the available BLE payloads.",
+        ]
     }
 }
 

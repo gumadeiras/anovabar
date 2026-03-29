@@ -261,7 +261,7 @@ struct MenuBarContentView: View {
                 .overlay(Color.white.opacity(0.06))
                 .padding(.vertical, 8)
 
-            diagnosticDisclosure("Raw Readings", text: model.rawReadingsText, maxHeight: 96)
+            diagnosticDisclosure("BLE Payloads", text: model.rawReadingsText, maxHeight: 112)
         }
         .font(.system(size: 13))
         .padding(UI.panelPadding)

@@ -16,13 +16,6 @@ final class AppModel: ObservableObject {
         case stopped
     }
 
-    private enum CookTimerState {
-        case none
-        case staged(seconds: Int)
-        case running(initialSeconds: Int, startedAt: Date)
-        case stopped
-    }
-
     private enum ExpectedDeviceState {
         case temperatureUnit(MiniTemperatureUnit)
         case targetTemperature(Double)
@@ -80,21 +73,18 @@ final class AppModel: ObservableObject {
 
     private struct OperationStateSnapshot {
         var connectedDevice: MiniDiscoveredDevice?
-        var snapshot: MiniSnapshot?
-        var systemInfo: JSONDictionary?
+        var observedState: MiniObservedDeviceState
         var targetTemperatureText: String
         var timerMinutesText: String
         var selectedUnit: MiniTemperatureUnit
-        var lastKnownCurrentTemperature: Double?
-        var lastKnownTargetTemperature: Double?
-        var cookTimerState: CookTimerState
+        var sessionState: MiniCookSessionState
     }
 
     @Published private(set) var devices: [MiniDiscoveredDevice] = []
     @Published var selectedDeviceID: UUID?
     @Published private(set) var connectedDevice: MiniDiscoveredDevice?
-    @Published private(set) var snapshot: MiniSnapshot?
-    @Published private(set) var systemInfo: JSONDictionary?
+    @Published private var observedState = MiniObservedDeviceState()
+    @Published private var sessionState = MiniCookSessionState()
     @Published private(set) var statusMessage = "Click Scan for Minis to discover a cooker."
     @Published private(set) var isBusy = false
     @Published private(set) var isScanning = false
@@ -111,11 +101,9 @@ final class AppModel: ObservableObject {
     private var didLoad = false
     private var pollTask: Task<Void, Never>?
     private var clockTask: Task<Void, Never>?
+    private var autoStopTask: Task<Void, Never>?
     private var operationInFlight = false
     private var isUnitChangeInFlight = false
-    private var lastKnownCurrentTemperature: Double?
-    private var lastKnownTargetTemperature: Double?
-    private var cookTimerState: CookTimerState = .none
     private var deviceAliases: [String: String]
     private var deviceCookState: [String: PersistedCookState]
     @Published private var timerNow = Date()
@@ -141,12 +129,12 @@ final class AppModel: ObservableObject {
     }
 
     var systemInfoText: String {
-        systemInfo.map(MiniFormat.json) ?? "No system information loaded yet."
+        observedState.systemInfo.map(MiniFormat.json) ?? "No system information loaded yet."
     }
 
     var currentDisplayText: String {
         let unit = selectedUnit
-        let value = lastKnownCurrentTemperature ?? snapshot?.currentTemperatureValue
+        let value = observedState.currentDisplayTemperature
 
         guard let value else {
             return "Unavailable"
@@ -161,7 +149,7 @@ final class AppModel: ObservableObject {
 
     var targetDisplayText: String {
         let unit = selectedUnit
-        let value = lastKnownTargetTemperature ?? snapshot?.targetTemperatureValue
+        let value = observedState.targetDisplayTemperature
 
         guard let value else {
             return "Unavailable"
@@ -171,29 +159,17 @@ final class AppModel: ObservableObject {
     }
 
     var timerDisplayText: String {
-        switch cookTimerState {
-        case .none:
-            return snapshot?.timerDisplay ?? "Unavailable"
-        case .staged(let seconds):
-            return MiniFormat.duration(seconds: seconds)
-        case .running(let initialSeconds, let startedAt):
-            if initialSeconds == 0 {
-                return "∞"
-            }
-            let remaining = Self.remainingTimerSeconds(initialSeconds: initialSeconds, startedAt: startedAt, now: timerNow)
-            return remaining == 0 ? "Complete" : MiniFormat.duration(seconds: remaining)
-        case .stopped:
-            return MiniFormat.duration(seconds: 0)
-        }
+        sessionState.timerDisplayText(now: timerNow, fallback: observedState.snapshot?.timerDisplay)
     }
 
     var rawReadingsText: String {
-        guard let snapshot else {
+        guard let snapshot = observedState.snapshot else {
             return "No device readings loaded yet."
         }
 
         return MiniFormat.json(
             [
+                "interpretation": snapshot.interpretation,
                 "currentTemperature": snapshot.currentTemperature,
                 "state": snapshot.state,
                 "timer": snapshot.timer,
@@ -210,19 +186,11 @@ final class AppModel: ObservableObject {
     }
 
     var canStartCook: Bool {
-        if case .running = cookTimerState {
-            return false
-        }
-
-        return true
+        !sessionState.blocksStartAction && observedState.snapshot?.isCooking != true
     }
 
     var canStopCook: Bool {
-        if case .running = cookTimerState {
-            return true
-        }
-
-        return snapshot?.isCooking == true
+        sessionState.enablesStopAction || observedState.snapshot?.isCooking == true
     }
 
     func loadIfNeeded() async {
@@ -287,7 +255,7 @@ final class AppModel: ObservableObject {
             self.statusMessage = "Connected to \(self.label(for: device))."
 
             try await self.client.setClockToUTCNow()
-            self.systemInfo = try await self.client.systemInfo()
+            self.observedState.systemInfo = try await self.client.systemInfo()
             try await self.refreshSnapshot()
             self.startPolling()
             self.startClock()
@@ -300,8 +268,8 @@ final class AppModel: ObservableObject {
         stopClock()
         client.disconnect()
         connectedDevice = nil
-        snapshot = nil
-        systemInfo = nil
+        observedState.clearConnectionState()
+        _ = sessionState.apply(.disconnect)
         restoreCookState(for: selectedOrConnectedDevice())
         syncAliasDraft()
         statusMessage = "Disconnected."
@@ -334,7 +302,7 @@ final class AppModel: ObservableObject {
         recordApp("refreshRequested")
         await perform("Refreshing…") { [self] in
             try await self.refreshSnapshot()
-            self.systemInfo = try await self.client.systemInfo()
+            self.observedState.systemInfo = try await self.client.systemInfo()
         }
     }
 
@@ -350,11 +318,11 @@ final class AppModel: ObservableObject {
             try await self.client.setUnit(unit)
             self.convertVisibleTemperatures(from: previousUnit, to: unit)
             self.selectedUnit = unit
-            if case let .running(timerSeconds, _) = self.cookTimerState {
+            if let timerSeconds = self.sessionState.activeCookTimerSeconds {
                 let targetTemperature: Double
-                if let lastKnownTargetTemperature {
+                if let lastKnownTargetTemperature = self.observedState.lastKnownTargetTemperature {
                     targetTemperature = lastKnownTargetTemperature
-                } else if let snapshotTarget = self.snapshot?.targetTemperatureValue {
+                } else if let snapshotTarget = self.observedState.snapshot?.targetTemperatureValue {
                     targetTemperature = snapshotTarget
                 } else {
                     targetTemperature = try self.parseTargetTemperature()
@@ -385,9 +353,9 @@ final class AppModel: ObservableObject {
                 details: ["target": "\(MiniFormat.temperature(target))\(self.selectedUnit.symbol)"]
             )
             try await self.client.setTemperature(target)
-            self.lastKnownTargetTemperature = target
+            self.observedState.setTargetTemperature(target)
             self.persistCookState(targetTemperature: target)
-            if case let .running(timerSeconds, _) = self.cookTimerState {
+            if let timerSeconds = self.sessionState.activeCookTimerSeconds {
                 try await self.syncDeviceState(
                     after: .running(targetTemperature: target, timerSeconds: timerSeconds, requireTimerRunningSignal: true),
                     preservingTimerState: true
@@ -411,29 +379,29 @@ final class AppModel: ObservableObject {
             )
             self.timerMinutesText = Self.minutesString(fromSeconds: timer)
 
-            if self.snapshot?.isCooking == true {
+            if self.observedState.snapshot?.isCooking == true {
                 let target: Double
-                if let snapshotTarget = self.snapshot?.targetTemperatureValue {
+                if let snapshotTarget = self.observedState.snapshot?.targetTemperatureValue {
                     target = snapshotTarget
-                } else if let lastKnownTarget = self.lastKnownTargetTemperature {
+                } else if let lastKnownTarget = self.observedState.lastKnownTargetTemperature {
                     target = lastKnownTarget
                 } else {
                     target = try self.parseTargetTemperature()
                 }
                 try await self.client.startCook(setpoint: target, timerSeconds: timer)
-                self.lastKnownTargetTemperature = target
-                self.cookTimerState = .running(initialSeconds: timer, startedAt: Date())
+                self.observedState.setTargetTemperature(target)
+                _ = self.sessionState.apply(.timerUpdatedWhileCooking(timerSeconds: timer, now: Date()))
                 try await self.syncDeviceState(
                     after: .running(targetTemperature: target, timerSeconds: timer, requireTimerRunningSignal: true),
                     preservingTimerState: true
                 )
                 self.statusMessage = "Timer updated."
             } else {
-                self.cookTimerState = timer == 0 ? .stopped : .staged(seconds: timer)
+                _ = self.sessionState.apply(.stageTimer(seconds: timer))
                 self.statusMessage = "Timer staged for the next cook."
             }
 
-            self.persistCookState(targetTemperature: self.snapshot?.targetTemperatureValue ?? self.lastKnownTargetTemperature)
+            self.persistCookState(targetTemperature: self.observedState.snapshot?.targetTemperatureValue ?? self.observedState.lastKnownTargetTemperature)
         }
     }
 
@@ -449,8 +417,8 @@ final class AppModel: ObservableObject {
                 ]
             )
             try await self.client.startCook(setpoint: setpoint, timerSeconds: timer)
-            self.lastKnownTargetTemperature = setpoint
-            self.cookTimerState = .running(initialSeconds: timer, startedAt: Date())
+            self.observedState.setTargetTemperature(setpoint)
+            _ = self.sessionState.apply(.startRequested(timerSeconds: timer, now: Date()))
             self.persistCookState(targetTemperature: setpoint)
             try await self.syncDeviceState(
                 after: .running(targetTemperature: setpoint, timerSeconds: timer, requireTimerRunningSignal: true),
@@ -467,21 +435,7 @@ final class AppModel: ObservableObject {
                 "stopCook",
                 details: ["preservedTimerSeconds": preservedTimerSeconds.map(String.init) ?? "nil"]
             )
-            try await self.client.stopCook()
-            if let preservedTimerSeconds, preservedTimerSeconds > 0 {
-                self.timerMinutesText = Self.minutesString(fromSeconds: preservedTimerSeconds)
-                self.cookTimerState = .staged(seconds: preservedTimerSeconds)
-            } else {
-                self.timerMinutesText = "0"
-                self.cookTimerState = .stopped
-            }
-            self.persistCookState(targetTemperature: self.lastKnownTargetTemperature)
-            try await self.syncDeviceState(after: .stopped)
-            if let preservedTimerSeconds, preservedTimerSeconds > 0 {
-                self.cookTimerState = .staged(seconds: preservedTimerSeconds)
-                self.timerMinutesText = Self.minutesString(fromSeconds: preservedTimerSeconds)
-                self.persistCookState(targetTemperature: self.lastKnownTargetTemperature)
-            }
+            try await self.executeStopCook(preservedTimerSeconds: preservedTimerSeconds, origin: .manual)
             self.statusMessage = "Stop command sent."
         }
     }
@@ -520,14 +474,11 @@ final class AppModel: ObservableObject {
     private func captureOperationState() -> OperationStateSnapshot {
         OperationStateSnapshot(
             connectedDevice: connectedDevice,
-            snapshot: snapshot,
-            systemInfo: systemInfo,
+            observedState: observedState,
             targetTemperatureText: targetTemperatureText,
             timerMinutesText: timerMinutesText,
             selectedUnit: selectedUnit,
-            lastKnownCurrentTemperature: lastKnownCurrentTemperature,
-            lastKnownTargetTemperature: lastKnownTargetTemperature,
-            cookTimerState: cookTimerState
+            sessionState: sessionState
         )
     }
 
@@ -537,14 +488,11 @@ final class AppModel: ObservableObject {
         }
 
         connectedDevice = state.connectedDevice
-        snapshot = state.snapshot
-        systemInfo = state.systemInfo
+        observedState = state.observedState
         targetTemperatureText = state.targetTemperatureText
         timerMinutesText = state.timerMinutesText
         selectedUnit = state.selectedUnit
-        lastKnownCurrentTemperature = state.lastKnownCurrentTemperature
-        lastKnownTargetTemperature = state.lastKnownTargetTemperature
-        cookTimerState = state.cookTimerState
+        sessionState = state.sessionState
     }
 
     private func refreshSnapshot(preservingTimerState: Bool = false) async throws {
@@ -562,25 +510,20 @@ final class AppModel: ObservableObject {
                 "timer": MiniFormat.compactJSON(latestSnapshot.timer),
             ]
         )
-        snapshot = latestSnapshot
+        observedState.apply(snapshot: latestSnapshot)
 
         if let unit = latestSnapshot.temperatureUnit, !isUnitChangeInFlight {
             selectedUnit = unit
         }
 
-        if let current = latestSnapshot.currentTemperatureValue, !isUnitChangeInFlight {
-            lastKnownCurrentTemperature = current
-        }
-
         if let target = latestSnapshot.targetTemperatureValue, !isUnitChangeInFlight {
-            lastKnownTargetTemperature = target
             targetTemperatureText = MiniFormat.temperature(target)
         }
 
-        if !preservingTimerState {
-            reconcileTimerState(with: latestSnapshot)
-        }
-        persistCookState(targetTemperature: latestSnapshot.targetTemperatureValue ?? lastKnownTargetTemperature)
+        let effect = sessionState.apply(.snapshotObserved(latestSnapshot, preservingPhase: preservingTimerState, now: Date()))
+        refreshTimerMinutesTextFromSession()
+        handleSessionEffect(effect, snapshot: latestSnapshot)
+        persistCookState(targetTemperature: latestSnapshot.targetTemperatureValue ?? observedState.lastKnownTargetTemperature)
     }
 
     private func parseTargetTemperature() throws -> Double {
@@ -680,8 +623,8 @@ final class AppModel: ObservableObject {
 
     private func restoreCookState(for device: MiniDiscoveredDevice?) {
         guard let device else {
-            lastKnownTargetTemperature = nil
-            cookTimerState = .none
+            observedState.restorePersistedTarget(nil)
+            _ = sessionState.apply(.restore(timerState: .none))
             targetTemperatureText = "60.0"
             timerMinutesText = "0"
             diagnostics.record(.persistence, "restoreCookState", details: ["device": "nil"])
@@ -689,8 +632,8 @@ final class AppModel: ObservableObject {
         }
 
         let persisted = deviceCookState[device.identifier]
-        lastKnownTargetTemperature = persisted?.targetTemperature
-        cookTimerState = Self.restoreTimerState(from: persisted?.timerState)
+        observedState.restorePersistedTarget(persisted?.targetTemperature)
+        _ = sessionState.apply(.restore(timerState: Self.restoredTimerState(from: persisted?.timerState)))
         diagnostics.record(
             .persistence,
             "restoreCookState",
@@ -707,14 +650,7 @@ final class AppModel: ObservableObject {
             targetTemperatureText = "60.0"
         }
 
-        switch cookTimerState {
-        case .staged(let seconds):
-            timerMinutesText = Self.minutesString(fromSeconds: seconds)
-        case .stopped, .none:
-            timerMinutesText = "0"
-        case .running:
-            timerMinutesText = "0"
-        }
+        refreshTimerMinutesTextFromSession()
     }
 
     private func persistCookState(targetTemperature: Double?) {
@@ -724,7 +660,7 @@ final class AppModel: ObservableObject {
 
         deviceCookState[device.identifier] = PersistedCookState(
             targetTemperature: targetTemperature,
-            timerState: Self.persistedTimerState(for: cookTimerState)
+            timerState: Self.persistedTimerState(for: sessionState.persistedTimerState)
         )
 
         if let data = try? JSONEncoder().encode(deviceCookState) {
@@ -737,7 +673,7 @@ final class AppModel: ObservableObject {
             details: [
                 "device": device.displayName,
                 "target": targetTemperature.map(MiniFormat.temperature) ?? "nil",
-                "timerState": String(describing: Self.persistedTimerState(for: cookTimerState)),
+                "timerState": String(describing: Self.persistedTimerState(for: sessionState.persistedTimerState)),
             ]
         )
     }
@@ -751,8 +687,8 @@ final class AppModel: ObservableObject {
             targetTemperatureText = MiniFormat.temperature(Self.convertTemperature(parsed, from: previousUnit, to: newUnit))
         }
 
-        if let lastKnownTargetTemperature {
-            self.lastKnownTargetTemperature = Self.convertTemperature(lastKnownTargetTemperature, from: previousUnit, to: newUnit)
+        if let lastKnownTargetTemperature = observedState.lastKnownTargetTemperature {
+            observedState.lastKnownTargetTemperature = Self.convertTemperature(lastKnownTargetTemperature, from: previousUnit, to: newUnit)
         }
     }
 
@@ -776,12 +712,7 @@ final class AppModel: ObservableObject {
             return parsedMinutes * 60
         }
 
-        switch cookTimerState {
-        case .staged(let seconds), .running(let seconds, _):
-            return seconds
-        case .none, .stopped:
-            return nil
-        }
+        return sessionState.configuredTimerSeconds
     }
 
     private func syncDeviceState(after expectedState: ExpectedDeviceState, preservingTimerState: Bool = false) async throws {
@@ -814,60 +745,88 @@ final class AppModel: ObservableObject {
         throw MiniBLEClientError.stateUnconfirmed(expectedState.summary)
     }
 
-    private func reconcileTimerState(with snapshot: MiniSnapshot) {
-        if snapshot.isCooking {
-            guard let initialSeconds = snapshot.timerInitialSeconds ?? snapshot.timerSecondsValue else {
-                cookTimerState = .none
-                timerMinutesText = "0"
+    private enum StopOrigin {
+        case manual
+        case automaticAfterCompletion
+    }
+
+    private func refreshTimerMinutesTextFromSession() {
+        switch sessionState.phase {
+        case .staged(let seconds), .waitingForTemperature(let seconds), .completed(let seconds):
+            timerMinutesText = Self.minutesString(fromSeconds: seconds)
+        case .running, .stopped, .none:
+            timerMinutesText = "0"
+        }
+    }
+
+    private func handleSessionEffect(_ effect: MiniCookSessionEffect?, snapshot: MiniSnapshot) {
+        guard let effect else {
+            return
+        }
+
+        switch effect {
+        case .autoStopAfterTimerCompletion:
+            scheduleAutoStopAfterTimerCompletion(using: snapshot)
+        }
+    }
+
+    private func scheduleAutoStopAfterTimerCompletion(using snapshot: MiniSnapshot) {
+        guard autoStopTask == nil else {
+            return
+        }
+
+        diagnostics.record(
+            .app,
+            "timerCompleted",
+            details: [
+                "state": MiniFormat.compactJSON(snapshot.state),
+                "timer": MiniFormat.compactJSON(snapshot.timer),
+            ]
+        )
+
+        autoStopTask = Task { [weak self] in
+            guard let self else {
                 return
             }
 
-            let startedAt = snapshot.timerStartedAt ?? preservedRunningStartedAt(for: initialSeconds) ?? Date()
-            cookTimerState = .running(initialSeconds: initialSeconds, startedAt: startedAt)
-            timerMinutesText = Self.minutesString(fromSeconds: initialSeconds)
-            return
-        }
+            await self.perform("Stopping cook after timer completion…") { [self] in
+                self.recordApp("autoStopAfterTimerCompletion")
+                try await self.executeStopCook(preservedTimerSeconds: nil, origin: .automaticAfterCompletion)
+                self.statusMessage = "Timer completed. Stop command sent."
+            }
 
-        if case .stopped = cookTimerState {
-            timerMinutesText = "0"
-            return
-        }
-
-        if let stagedSeconds = snapshot.timerSecondsValue, stagedSeconds > 0 {
-            cookTimerState = .staged(seconds: stagedSeconds)
-            timerMinutesText = Self.minutesString(fromSeconds: stagedSeconds)
-        } else {
-            cookTimerState = .none
-            timerMinutesText = "0"
+            self.autoStopTask = nil
         }
     }
 
-    private func preservedRunningStartedAt(for initialSeconds: Int) -> Date? {
-        guard case let .running(currentInitialSeconds, startedAt) = cookTimerState,
-              currentInitialSeconds == initialSeconds else {
-            return nil
+    private func executeStopCook(preservedTimerSeconds: Int?, origin: StopOrigin) async throws {
+        switch origin {
+        case .manual:
+            _ = sessionState.apply(.stopRequested(preservedTimerSeconds: preservedTimerSeconds))
+        case .automaticAfterCompletion:
+            _ = sessionState.apply(.autoStopRequested)
         }
-
-        return startedAt
+        refreshTimerMinutesTextFromSession()
+        try await client.stopCook()
+        persistCookState(targetTemperature: observedState.lastKnownTargetTemperature)
+        try await syncDeviceState(after: .stopped)
+        _ = sessionState.apply(.stopConfirmed(preservedTimerSeconds: preservedTimerSeconds))
+        refreshTimerMinutesTextFromSession()
+        persistCookState(targetTemperature: observedState.lastKnownTargetTemperature)
     }
 
-    private static func remainingTimerSeconds(initialSeconds: Int, startedAt: Date, now: Date) -> Int {
-        let elapsed = max(0, Int(now.timeIntervalSince(startedAt)))
-        return max(0, initialSeconds - elapsed)
-    }
-
-    private static func persistedTimerState(for timerState: CookTimerState) -> PersistedTimerState? {
+    private static func persistedTimerState(for timerState: MiniRestoredTimerState) -> PersistedTimerState? {
         switch timerState {
         case .staged(let seconds):
             return .staged(seconds: seconds)
         case .stopped:
             return .stopped
-        case .none, .running:
+        case .none:
             return nil
         }
     }
 
-    private static func restoreTimerState(from timerState: PersistedTimerState?) -> CookTimerState {
+    private static func restoredTimerState(from timerState: PersistedTimerState?) -> MiniRestoredTimerState {
         switch timerState {
         case .staged(let seconds):
             return .staged(seconds: seconds)

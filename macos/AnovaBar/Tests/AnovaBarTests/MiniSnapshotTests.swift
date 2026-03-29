@@ -79,4 +79,48 @@ struct MiniSnapshotTests {
             )
         )
     }
+
+    @Test
+    func interpretsIdleTimerDuringCookAsConfiguredDuration() {
+        let snapshot = MiniSnapshot(
+            state: [
+                "mode": "cook",
+                "temperatureUnit": "C",
+                "setpoint": 54.5,
+            ],
+            currentTemperature: [
+                "current": 51.3,
+            ],
+            timer: [
+                "initial": 1_800,
+                "mode": "idle",
+            ]
+        )
+
+        #expect(snapshot.isCooking)
+        #expect(snapshot.activitySourceLabel == "state")
+        #expect(snapshot.timerSemanticLabel == "configured duration")
+    }
+
+    @Test
+    func detectsCompletedTimerWhileCookStateStillReportsCook() {
+        let snapshot = MiniSnapshot(
+            state: [
+                "mode": "cook",
+                "temperatureUnit": "C",
+                "setpoint": 54.5,
+            ],
+            currentTemperature: [
+                "current": 54.5,
+            ],
+            timer: [
+                "initial": 60,
+                "mode": "completed",
+            ]
+        )
+
+        #expect(snapshot.isCooking)
+        #expect(snapshot.timerHasCompleted)
+        #expect(snapshot.timerSemanticLabel == "completed timer")
+    }
 }
