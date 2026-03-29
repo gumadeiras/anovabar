@@ -73,6 +73,12 @@ Issues and PRs are welcome.
 
 If you have a cooker model that is not supported yet, contributions for new model support are especially useful.
 
+## Trademark Notice
+
+AnovaBar is an independent project and is not affiliated with, endorsed by, or sponsored by Anova Applied Electronics, Inc.
+
+Anova and related product names are trademarks or registered trademarks of Anova Applied Electronics, Inc.
+
 ## License
 
 MIT. See `LICENSE`.
