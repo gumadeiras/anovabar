@@ -89,6 +89,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var statusMessage = "Click Scan for Minis to discover a cooker."
     @Published private(set) var isBusy = false
     @Published private(set) var isScanning = false
+    @Published private(set) var hasCompletedScan = false
     @Published private(set) var bleTraceText = MiniDiagnosticsStore.emptyText
     @Published var targetTemperatureText = "60.0"
     @Published var timerMinutesText = "0"
@@ -219,6 +220,7 @@ final class AppModel: ObservableObject {
         do {
             let found = try await client.scan(timeout: 5)
             devices = found
+            hasCompletedScan = true
 
             if selectedDeviceID == nil || !found.contains(where: { $0.id == selectedDeviceID }) {
                 selectedDeviceID = found.first?.id
@@ -530,6 +532,13 @@ final class AppModel: ObservableObject {
     private func parseTargetTemperature() throws -> Double {
         guard let value = Double(targetTemperatureText) else {
             throw MiniBLEClientError.invalidPayload("Enter a numeric target temperature.")
+        }
+
+        let supportedRange = selectedUnit.supportedSetpointRange
+        guard supportedRange.contains(value) else {
+            throw MiniBLEClientError.invalidPayload(
+                "Enter a temperature between \(selectedUnit.supportedSetpointDescription)."
+            )
         }
 
         return value

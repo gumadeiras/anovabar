@@ -108,7 +108,7 @@ struct MenuBarContentView: View {
                     ZStack {
                         Text("Scanning…")
                             .hidden()
-                        Text(model.isScanning ? "Scanning…" : "Scan")
+                        Text(model.isScanning ? "Scanning…" : (model.hasCompletedScan ? "Rescan" : "Scan"))
                     }
                 }
                     .prominentActionButton()
