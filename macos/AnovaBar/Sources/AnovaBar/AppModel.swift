@@ -87,7 +87,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var connectedDevice: MiniDiscoveredDevice?
     @Published private var observedState = MiniObservedDeviceState()
     @Published private var sessionState = MiniCookSessionState()
-    @Published private(set) var statusMessage = "Click Scan for Minis to discover a cooker."
+    @Published private(set) var statusMessage = "Disconnected."
     @Published private(set) var isBusy = false
     @Published private(set) var isScanning = false
     @Published private(set) var hasCompletedScan = false
