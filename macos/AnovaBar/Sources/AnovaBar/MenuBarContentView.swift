@@ -428,11 +428,9 @@ struct MenuBarContentView: View {
                 .foregroundStyle(.secondary)
                 .fixedSize(horizontal: false, vertical: true)
 
-            TextField("Kitchen Mini", text: $model.aliasText)
-                .settingsFieldStyle()
-
             HStack(spacing: 8) {
-                Spacer(minLength: 0)
+                TextField("Kitchen Mini", text: $model.aliasText)
+                    .settingsFieldStyle()
 
                 Button("Clear") {
                     model.clearAlias()
