@@ -13,8 +13,15 @@ struct AnovaBarApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        MenuBarExtra(model.menuBarTitle, systemImage: model.menuBarIconName) {
+        MenuBarExtra {
             MenuBarContentView(model: model)
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: model.menuBarIconName)
+                Text(model.menuBarTitle)
+                    .lineLimit(1)
+                    .monospacedDigit()
+            }
         }
         .menuBarExtraStyle(.window)
     }
