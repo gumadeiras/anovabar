@@ -23,6 +23,21 @@ impl TemperatureUnit {
     }
 }
 
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum OriginalCookerModel {
+    Bluetooth800W,
+    Wifi900W,
+}
+
+impl OriginalCookerModel {
+    pub fn as_label(self) -> &'static str {
+        match self {
+            Self::Bluetooth800W => "800w",
+            Self::Wifi900W => "900w-wifi",
+        }
+    }
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TemperatureReading {
     pub value: f32,

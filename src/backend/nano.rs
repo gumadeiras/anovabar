@@ -165,7 +165,7 @@ impl BleProfile for NanoBleProfile {
         Some(NANO_READ_CHARACTERISTIC_UUID)
     }
 
-    fn decode_response(raw: &[u8]) -> Option<Vec<u8>> {
+    fn decode_response(raw: &[u8], _latest_chunk: &[u8]) -> Option<Vec<u8>> {
         decode_frame(raw)
     }
 

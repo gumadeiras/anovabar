@@ -2,8 +2,8 @@ use std::process::ExitCode;
 use std::time::Duration;
 
 use anovabar::{
-    AnovaMini, AnovaNano, BleConnectOptions, DeviceStatus, DiscoveredDevice, MiniFullState,
-    StartCookOptions, TemperatureUnit,
+    AnovaMini, AnovaNano, AnovaOriginalPrecisionCooker, BleConnectOptions, DeviceStatus,
+    DiscoveredDevice, MiniFullState, OriginalStartCookOptions, StartCookOptions, TemperatureUnit,
 };
 use clap::{Args, Parser, Subcommand, ValueEnum};
 use futures::future::BoxFuture;
@@ -23,6 +23,8 @@ enum TopLevelCommand {
     Nano(NanoArgs),
     /// Commands for Anova Mini / Gen 3 devices.
     Mini(MiniArgs),
+    /// Commands for the original Anova Precision Cooker (A2/A3).
+    Original(OriginalArgs),
 }
 
 #[derive(Debug, Args)]
@@ -35,6 +37,12 @@ struct NanoArgs {
 struct MiniArgs {
     #[command(subcommand)]
     command: MiniCommand,
+}
+
+#[derive(Debug, Args)]
+struct OriginalArgs {
+    #[command(subcommand)]
+    command: OriginalCommand,
 }
 
 #[derive(Debug, Subcommand)]
@@ -66,6 +74,27 @@ enum MiniCommand {
     SetUnit(SetUnitArgs),
     SetTemp(SetMiniTempArgs),
     Start(StartMiniCookArgs),
+    Stop(DeviceOptions),
+}
+
+#[derive(Debug, Subcommand)]
+enum OriginalCommand {
+    Scan(ScanArgs),
+    Status(DeviceOptions),
+    Unit(DeviceOptions),
+    CurrentTemp(DeviceOptions),
+    TargetTemp(DeviceOptions),
+    Timer(DeviceOptions),
+    CookerId(DeviceOptions),
+    Model(DeviceOptions),
+    FirmwareVersion(DeviceOptions),
+    ClearAlarm(DeviceOptions),
+    SetUnit(SetUnitArgs),
+    SetTemp(SetMiniTempArgs),
+    SetTimer(SetTimerArgs),
+    StartTimer(DeviceOptions),
+    StopTimer(DeviceOptions),
+    Start(StartOriginalCookArgs),
     Stop(DeviceOptions),
 }
 
@@ -156,6 +185,15 @@ struct StartMiniCookArgs {
     cookable_type: String,
 }
 
+#[derive(Debug, Args)]
+struct StartOriginalCookArgs {
+    #[command(flatten)]
+    device: DeviceOptions,
+    setpoint: f64,
+    #[arg(long, default_value_t = 0)]
+    timer_minutes: u32,
+}
+
 #[tokio::main]
 async fn main() -> ExitCode {
     let cli = Cli::parse();
@@ -173,6 +211,7 @@ async fn run(cli: Cli) -> anovabar::Result<()> {
     match cli.command {
         TopLevelCommand::Nano(args) => run_nano(args).await,
         TopLevelCommand::Mini(args) => run_mini(args).await,
+        TopLevelCommand::Original(args) => run_original(args).await,
     }
 }
 
@@ -387,7 +426,9 @@ async fn run_mini(args: MiniArgs) -> anovabar::Result<()> {
             with_mini(args.device, |device| {
                 Box::pin(async move {
                     let full_state = device.get_full_state().await?;
-                    let unit = full_state.temperature_unit().unwrap_or(TemperatureUnit::Celsius);
+                    let unit = full_state
+                        .temperature_unit()
+                        .unwrap_or(TemperatureUnit::Celsius);
                     validate_mini_setpoint(args.temperature, unit)?;
                     device.set_temperature(args.temperature).await?;
                     println!("setpoint={}", args.temperature);
@@ -400,7 +441,9 @@ async fn run_mini(args: MiniArgs) -> anovabar::Result<()> {
             with_mini(args.device, |device| {
                 Box::pin(async move {
                     let full_state = device.get_full_state().await?;
-                    let unit = full_state.temperature_unit().unwrap_or(TemperatureUnit::Celsius);
+                    let unit = full_state
+                        .temperature_unit()
+                        .unwrap_or(TemperatureUnit::Celsius);
                     validate_mini_setpoint(args.setpoint, unit)?;
                     let mut options = StartCookOptions::new(args.setpoint);
                     options.timer_seconds = args.timer_seconds;
@@ -415,6 +458,177 @@ async fn run_mini(args: MiniArgs) -> anovabar::Result<()> {
         }
         MiniCommand::Stop(options) => {
             with_mini(options, |device| {
+                Box::pin(async move {
+                    device.stop_cook().await?;
+                    println!("stopped=true");
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+    }
+
+    Ok(())
+}
+
+async fn run_original(args: OriginalArgs) -> anovabar::Result<()> {
+    match args.command {
+        OriginalCommand::Scan(args) => {
+            let devices =
+                AnovaOriginalPrecisionCooker::discover(Duration::from_secs(args.scan_timeout))
+                    .await?;
+            print_devices(&devices);
+        }
+        OriginalCommand::Status(options) => {
+            with_original(options, |device| {
+                Box::pin(async move {
+                    println!("status={}", device.status().await?);
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::Unit(options) => {
+            with_original(options, |device| {
+                Box::pin(async move {
+                    println!("unit={}", device.read_unit().await?.as_symbol());
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::CurrentTemp(options) => {
+            with_original(options, |device| {
+                Box::pin(async move {
+                    println!("current_temperature={}", device.read_temperature().await?);
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::TargetTemp(options) => {
+            with_original(options, |device| {
+                Box::pin(async move {
+                    println!(
+                        "target_temperature={}",
+                        device.read_target_temperature().await?
+                    );
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::Timer(options) => {
+            with_original(options, |device| {
+                Box::pin(async move {
+                    println!("timer={}", device.read_timer().await?);
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::CookerId(options) => {
+            with_original(options, |device| {
+                Box::pin(async move {
+                    println!("cooker_id={}", device.get_cooker_id().await?);
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::Model(options) => {
+            with_original(options, |device| {
+                Box::pin(async move {
+                    let model = device.detect_model().await?;
+                    println!("model={}", model.as_label());
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::FirmwareVersion(options) => {
+            with_original(options, |device| {
+                Box::pin(async move {
+                    println!("firmware_version={}", device.firmware_version().await?);
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::ClearAlarm(options) => {
+            with_original(options, |device| {
+                Box::pin(async move {
+                    println!("clear_alarm={}", device.clear_alarm().await?);
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::SetUnit(args) => {
+            with_original(args.device, |device| {
+                Box::pin(async move {
+                    let unit = TemperatureUnit::from(args.unit);
+                    device.set_unit(unit).await?;
+                    println!("unit={}", unit.as_symbol());
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::SetTemp(args) => {
+            with_original(args.device, |device| {
+                Box::pin(async move {
+                    device.set_temperature(args.temperature).await?;
+                    println!("target_temperature={}", args.temperature);
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::SetTimer(args) => {
+            with_original(args.device, |device| {
+                Box::pin(async move {
+                    device.set_timer_minutes(args.minutes).await?;
+                    println!("timer_minutes={}", args.minutes);
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::StartTimer(options) => {
+            with_original(options, |device| {
+                Box::pin(async move {
+                    device.start_timer().await?;
+                    println!("timer_started=true");
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::StopTimer(options) => {
+            with_original(options, |device| {
+                Box::pin(async move {
+                    device.stop_timer().await?;
+                    println!("timer_stopped=true");
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::Start(args) => {
+            with_original(args.device, |device| {
+                Box::pin(async move {
+                    let mut options = OriginalStartCookOptions::new(args.setpoint);
+                    options.timer_minutes = args.timer_minutes;
+                    device.start_cook(options).await?;
+                    println!("started=true");
+                    Ok(())
+                })
+            })
+            .await?;
+        }
+        OriginalCommand::Stop(options) => {
+            with_original(options, |device| {
                 Box::pin(async move {
                     device.stop_cook().await?;
                     println!("stopped=true");
@@ -463,6 +677,21 @@ where
     F: for<'a> FnOnce(&'a AnovaMini) -> BoxFuture<'a, anovabar::Result<()>>,
 {
     let device = AnovaMini::connect(options.into_connect_options()).await?;
+    let result = operation(&device).await;
+    let disconnect_result = device.disconnect().await;
+
+    match (result, disconnect_result) {
+        (Err(error), _) => Err(error),
+        (Ok(()), Err(error)) => Err(error),
+        (Ok(()), Ok(())) => Ok(()),
+    }
+}
+
+async fn with_original<F>(options: DeviceOptions, operation: F) -> anovabar::Result<()>
+where
+    F: for<'a> FnOnce(&'a AnovaOriginalPrecisionCooker) -> BoxFuture<'a, anovabar::Result<()>>,
+{
+    let device = AnovaOriginalPrecisionCooker::connect(options.into_connect_options()).await?;
     let result = operation(&device).await;
     let disconnect_result = device.disconnect().await;
 

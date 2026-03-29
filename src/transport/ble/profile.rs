@@ -17,7 +17,7 @@ pub trait BleProfile: 'static {
     }
 
     /// Decodes an accumulated notification buffer into a complete response payload.
-    fn decode_response(_raw: &[u8]) -> Option<Vec<u8>> {
+    fn decode_response(_raw: &[u8], _latest_chunk: &[u8]) -> Option<Vec<u8>> {
         None
     }
 

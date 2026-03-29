@@ -141,7 +141,7 @@ where
                     .ok_or(Error::NotificationStreamClosed)?;
                 raw.extend_from_slice(&chunk);
 
-                if let Some(decoded) = P::decode_response(&raw) {
+                if let Some(decoded) = P::decode_response(&raw, &chunk) {
                     return Ok::<Vec<u8>, Error>(decoded);
                 }
             }
