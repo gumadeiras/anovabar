@@ -1,3 +1,4 @@
+use std::fs;
 use std::process::ExitCode;
 use std::time::Duration;
 
@@ -5,7 +6,7 @@ use anovabar::{
     AnovaMini, AnovaNano, AnovaOriginalPrecisionCooker, BleConnectOptions, DeviceStatus,
     DiscoveredDevice, MiniFullState, OriginalStartCookOptions, StartCookOptions, TemperatureUnit,
 };
-use clap::{Args, Parser, Subcommand, ValueEnum};
+use clap::{Args, Parser, Subcommand, ValueEnum, error::ErrorKind};
 use futures::future::BoxFuture;
 use serde_json::Value;
 
@@ -196,15 +197,41 @@ struct StartOriginalCookArgs {
 
 #[tokio::main]
 async fn main() -> ExitCode {
-    let cli = Cli::parse();
+    let cli = match Cli::try_parse() {
+        Ok(cli) => cli,
+        Err(error) => {
+            let code = match error.kind() {
+                ErrorKind::DisplayHelp | ErrorKind::DisplayVersion => 0,
+                _ => 2,
+            };
 
-    match run(cli).await {
-        Ok(()) => ExitCode::SUCCESS,
+            error.print().ok();
+            write_launcher_exit_status(code);
+            return ExitCode::from(code);
+        }
+    };
+
+    let exit_status = match run(cli).await {
+        Ok(()) => {
+            write_launcher_exit_status(0);
+            ExitCode::SUCCESS
+        }
         Err(error) => {
             eprintln!("error: {error}");
+            write_launcher_exit_status(1);
             ExitCode::FAILURE
         }
-    }
+    };
+
+    exit_status
+}
+
+fn write_launcher_exit_status(code: u8) {
+    let Ok(path) = std::env::var("ANOVABAR_EXIT_STATUS_PATH") else {
+        return;
+    };
+
+    let _ = fs::write(path, format!("{code}\n"));
 }
 
 async fn run(cli: Cli) -> anovabar::Result<()> {
