@@ -456,6 +456,7 @@ struct MenuBarContentView: View {
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.regular)
+                .tint(UI.accent)
             }
         }
         .padding(UI.panelPadding)
