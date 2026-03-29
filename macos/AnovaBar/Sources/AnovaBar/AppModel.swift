@@ -8,6 +8,7 @@ final class AppModel: ObservableObject {
     private struct PersistedCookState: Codable {
         var targetTemperature: Double?
         var timerState: PersistedTimerState?
+        var lastCompletedAt: Date?
     }
 
     private enum PersistedTimerState: Codable {
@@ -624,7 +625,7 @@ final class AppModel: ObservableObject {
     private func restoreCookState(for device: MiniDiscoveredDevice?) {
         guard let device else {
             observedState.restorePersistedTarget(nil)
-            _ = sessionState.apply(.restore(timerState: .none))
+            _ = sessionState.apply(.restore(timerState: .none, lastCompletedAt: nil))
             targetTemperatureText = "60.0"
             timerMinutesText = "0"
             diagnostics.record(.persistence, "restoreCookState", details: ["device": "nil"])
@@ -633,7 +634,12 @@ final class AppModel: ObservableObject {
 
         let persisted = deviceCookState[device.identifier]
         observedState.restorePersistedTarget(persisted?.targetTemperature)
-        _ = sessionState.apply(.restore(timerState: Self.restoredTimerState(from: persisted?.timerState)))
+        _ = sessionState.apply(
+            .restore(
+                timerState: Self.restoredTimerState(from: persisted?.timerState),
+                lastCompletedAt: persisted?.lastCompletedAt
+            )
+        )
         diagnostics.record(
             .persistence,
             "restoreCookState",
@@ -641,6 +647,7 @@ final class AppModel: ObservableObject {
                 "device": device.displayName,
                 "target": persisted?.targetTemperature.map(MiniFormat.temperature) ?? "nil",
                 "timerState": String(describing: persisted?.timerState),
+                "lastCompletedAt": persisted?.lastCompletedAt.map(MiniFormat.dateTime) ?? "nil",
             ]
         )
 
@@ -660,7 +667,8 @@ final class AppModel: ObservableObject {
 
         deviceCookState[device.identifier] = PersistedCookState(
             targetTemperature: targetTemperature,
-            timerState: Self.persistedTimerState(for: sessionState.persistedTimerState)
+            timerState: Self.persistedTimerState(for: sessionState.persistedTimerState),
+            lastCompletedAt: sessionState.lastCompletedAt
         )
 
         if let data = try? JSONEncoder().encode(deviceCookState) {
@@ -674,6 +682,7 @@ final class AppModel: ObservableObject {
                 "device": device.displayName,
                 "target": targetTemperature.map(MiniFormat.temperature) ?? "nil",
                 "timerState": String(describing: Self.persistedTimerState(for: sessionState.persistedTimerState)),
+                "lastCompletedAt": sessionState.lastCompletedAt.map(MiniFormat.dateTime) ?? "nil",
             ]
         )
     }

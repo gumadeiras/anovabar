@@ -514,6 +514,15 @@ enum MiniFormat {
         String(format: "%.1f", value)
     }
 
+    static func dateTime(_ date: Date) -> String {
+        let formatter = DateFormatter()
+        formatter.locale = .autoupdatingCurrent
+        formatter.timeZone = .autoupdatingCurrent
+        formatter.dateStyle = .medium
+        formatter.timeStyle = .short
+        return formatter.string(from: date)
+    }
+
     static func duration(seconds: Int) -> String {
         let totalSeconds = max(0, seconds)
         let days = totalSeconds / 86_400

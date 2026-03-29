@@ -28,7 +28,7 @@ enum MiniCookSessionEffect: Equatable {
 }
 
 enum MiniCookSessionEvent {
-    case restore(timerState: MiniRestoredTimerState)
+    case restore(timerState: MiniRestoredTimerState, lastCompletedAt: Date?)
     case stageTimer(seconds: Int)
     case startRequested(timerSeconds: Int, now: Date)
     case timerUpdatedWhileCooking(timerSeconds: Int, now: Date)
@@ -84,6 +84,7 @@ struct MiniObservedDeviceState {
 struct MiniCookSessionState: Equatable {
     var phase: MiniCookPhase = .none
     var commandState: MiniCookCommandState = .idle
+    var lastCompletedAt: Date?
     private(set) var completionAutoStopRequested = false
 
     var configuredTimerSeconds: Int? {
@@ -134,6 +135,10 @@ struct MiniCookSessionState: Equatable {
     }
 
     func timerDisplayText(now: Date, fallback: String?) -> String {
+        if !isActiveCookPhase, let lastCompletedAt {
+            return "Completed at \(MiniFormat.dateTime(lastCompletedAt))"
+        }
+
         switch phase {
         case .none:
             return fallback ?? "Unavailable"
@@ -151,16 +156,29 @@ struct MiniCookSessionState: Equatable {
             let remaining = Self.remainingTimerSeconds(initialSeconds: initialSeconds, startedAt: startedAt, now: now)
             return remaining == 0 ? "Complete" : MiniFormat.duration(seconds: remaining)
         case .completed:
+            if let lastCompletedAt {
+                return "Completed at \(MiniFormat.dateTime(lastCompletedAt))"
+            }
             return "Complete"
         case .stopped:
             return MiniFormat.duration(seconds: 0)
         }
     }
 
+    private var isActiveCookPhase: Bool {
+        switch phase {
+        case .waitingForTemperature, .running, .completed:
+            return true
+        case .none, .staged, .stopped:
+            return false
+        }
+    }
+
     mutating func apply(_ event: MiniCookSessionEvent) -> MiniCookSessionEffect? {
         switch event {
-        case .restore(let timerState):
+        case .restore(let timerState, let lastCompletedAt):
             commandState = .idle
+            self.lastCompletedAt = lastCompletedAt
             completionAutoStopRequested = false
             phase = Self.phase(from: timerState)
             return nil
@@ -173,12 +191,14 @@ struct MiniCookSessionState: Equatable {
 
         case .startRequested(let timerSeconds, let now):
             commandState = .startRequested
+            lastCompletedAt = nil
             completionAutoStopRequested = false
             phase = Self.pendingOrRunningPhase(for: timerSeconds, now: now)
             return nil
 
         case .timerUpdatedWhileCooking(let timerSeconds, let now):
             commandState = .timerUpdateRequested
+            lastCompletedAt = nil
             completionAutoStopRequested = false
             phase = Self.pendingOrRunningPhase(for: timerSeconds, now: now)
             return nil
@@ -207,6 +227,9 @@ struct MiniCookSessionState: Equatable {
             }
 
             if snapshot.isCooking, snapshot.timerHasCompleted {
+                if lastCompletedAt == nil {
+                    lastCompletedAt = now
+                }
                 if !completionAutoStopRequested {
                     completionAutoStopRequested = true
                     return .autoStopAfterTimerCompletion

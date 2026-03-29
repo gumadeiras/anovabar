@@ -75,6 +75,7 @@ struct MiniCookStateMachineTests {
         #expect(secondEffect == nil)
         #expect(state.phase == .completed(initialSeconds: 60))
         #expect(state.completionAutoStopRequested)
+        #expect(state.lastCompletedAt == now)
     }
 
     @Test
@@ -88,5 +89,20 @@ struct MiniCookStateMachineTests {
         #expect(state.phase == .staged(seconds: 180))
         #expect(state.commandState == .idle)
         #expect(state.persistedTimerState == .staged(seconds: 180))
+    }
+
+    @Test
+    func completedTimestampPersistsUntilNextCookStarts() {
+        var state = MiniCookSessionState()
+        let completedAt = Date(timeIntervalSince1970: 2_000)
+
+        _ = state.apply(.restore(timerState: .stopped, lastCompletedAt: completedAt))
+
+        #expect(state.timerDisplayText(now: completedAt, fallback: nil).contains("Completed at"))
+
+        _ = state.apply(.startRequested(timerSeconds: 60, now: Date(timeIntervalSince1970: 2_100)))
+
+        #expect(state.lastCompletedAt == nil)
+        #expect(state.phase == .waitingForTemperature(initialSeconds: 60))
     }
 }
