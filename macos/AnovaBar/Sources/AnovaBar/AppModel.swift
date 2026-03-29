@@ -716,8 +716,17 @@ final class AppModel: ObservableObject {
     }
 
     private func syncDeviceState(after expectedState: ExpectedDeviceState, preservingTimerState: Bool = false) async throws {
-        let maxAttempts = 10
-        let pollInterval = Duration.milliseconds(350)
+        let maxAttempts: Int
+        let pollInterval: Duration
+
+        switch expectedState {
+        case .stopped:
+            maxAttempts = 24
+            pollInterval = .milliseconds(350)
+        case .temperatureUnit, .targetTemperature, .running:
+            maxAttempts = 10
+            pollInterval = .milliseconds(350)
+        }
 
         for attempt in 0..<maxAttempts {
             if attempt > 0 {
