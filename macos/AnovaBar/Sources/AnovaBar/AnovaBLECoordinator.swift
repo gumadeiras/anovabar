@@ -3,20 +3,24 @@ import Foundation
 @MainActor
 final class AnovaBLECoordinator {
     private let diagnostics: MiniDiagnosticsStore
+    private let nanoClient: NanoBLEClient
     private let miniClient: MiniBLEClient
     private let originalClient: OriginalBLEClient
     private var discoveredDevices: [UUID: AnovaDiscoveredDevice] = [:]
 
     init(diagnostics: MiniDiagnosticsStore) {
         self.diagnostics = diagnostics
+        self.nanoClient = NanoBLEClient(diagnostics: diagnostics)
         self.miniClient = MiniBLEClient(diagnostics: diagnostics)
         self.originalClient = OriginalBLEClient(diagnostics: diagnostics)
     }
 
     func scan(timeout seconds: TimeInterval = 5) async throws -> [AnovaDiscoveredDevice] {
+        async let nanoDiscovered = nanoClient.scan(timeout: seconds)
         async let miniDiscovered = miniClient.scan(timeout: seconds)
         async let original = originalClient.scan(timeout: seconds)
 
+        let nano = try await nanoDiscovered
         let mini = try await miniDiscovered.map {
             AnovaDiscoveredDevice(
                 id: $0.id,
@@ -25,7 +29,7 @@ final class AnovaBLECoordinator {
                 family: .mini
             )
         }
-        let merged = mini + (try await original)
+        let merged = nano + mini + (try await original)
         var deduped: [UUID: AnovaDiscoveredDevice] = [:]
         for device in merged {
             deduped[device.id] = device
@@ -45,6 +49,9 @@ final class AnovaBLECoordinator {
         disconnect()
 
         switch device.family {
+        case .nano:
+            let connected = try await nanoClient.connect(to: deviceID)
+            return NanoCookerSession(client: nanoClient, device: connected)
         case .mini:
             let connected = try await miniClient.connect(to: deviceID)
             return MiniCookerSession(
@@ -63,9 +70,56 @@ final class AnovaBLECoordinator {
     }
 
     func disconnect() {
+        nanoClient.disconnect()
         miniClient.disconnect()
         originalClient.disconnect()
     }
+}
+
+@MainActor
+private final class NanoCookerSession: AnovaCookerSession {
+    let device: AnovaDiscoveredDevice
+    private let client: NanoBLEClient
+
+    var supportsClockSync: Bool { false }
+    var supportsStrictStateConfirmation: Bool { true }
+
+    init(client: NanoBLEClient, device: AnovaDiscoveredDevice) {
+        self.client = client
+        self.device = device
+    }
+
+    func disconnect() {
+        client.disconnect()
+    }
+
+    func snapshot() async throws -> CookerSnapshot {
+        try await client.snapshot()
+    }
+
+    func systemInfo() async throws -> JSONDictionary {
+        try await client.systemInfo()
+    }
+
+    func setClockToUTCNow() async throws {}
+
+    func setUnit(_ unit: MiniTemperatureUnit) async throws {
+        try await client.setUnit(unit)
+    }
+
+    func setTemperature(_ value: Double) async throws {
+        try await client.setTemperature(value)
+    }
+
+    func startCook(setpoint: Double, timerSeconds: Int) async throws {
+        try await client.startCook(setpoint: setpoint, timerSeconds: timerSeconds)
+    }
+
+    func stopCook() async throws {
+        try await client.stopCook()
+    }
+
+    func clearAlarmIfSupported() async throws {}
 }
 
 @MainActor

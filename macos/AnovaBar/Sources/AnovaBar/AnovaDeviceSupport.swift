@@ -1,11 +1,14 @@
 import Foundation
 
 enum AnovaDeviceFamily: String, Codable, Hashable {
+    case nano
     case mini
     case original
 
     var displayName: String {
         switch self {
+        case .nano:
+            return "Nano"
         case .mini:
             return "Mini / Gen 3"
         case .original:

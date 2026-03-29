@@ -10,6 +10,12 @@
 - Lets you set temperature, change units, start, and stop a cook
 - Built separately from the Rust CLI so Bluetooth privacy permissions live in the app process that talks to CoreBluetooth
 
+Supported in the app today:
+
+- Nano
+- Mini / Gen 3
+- Original Precision Cooker
+
 ## Build
 
 From the repo root:
