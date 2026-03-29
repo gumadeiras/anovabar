@@ -322,15 +322,11 @@ struct MenuBarContentView: View {
                     }
                 }
             } label: {
-                HStack(spacing: 8) {
+                HStack {
                     Text(selectedDeviceMenuTitle)
                         .lineLimit(1)
                         .truncationMode(.tail)
                         .frame(maxWidth: .infinity, alignment: .leading)
-
-                    Image(systemName: "chevron.up.chevron.down")
-                        .font(.system(size: 11, weight: .semibold))
-                        .foregroundStyle(.secondary)
                 }
             }
             .menuStyle(.borderlessButton)
@@ -431,18 +427,21 @@ struct MenuBarContentView: View {
             HStack(spacing: 8) {
                 TextField("Kitchen Mini", text: $model.aliasText)
                     .settingsFieldStyle()
+                    .layoutPriority(1)
 
-                Button("Clear") {
-                    model.clearAlias()
-                }
-                .actionButton()
-                .frame(minWidth: UI.settingsActionWidth)
+                HStack(spacing: 6) {
+                    Button("Clear") {
+                        model.clearAlias()
+                    }
+                    .actionButton()
+                    .frame(width: UI.settingsActionWidth)
 
-                Button("Save") {
-                    model.saveAlias()
+                    Button("Save") {
+                        model.saveAlias()
+                    }
+                    .prominentActionButton()
+                    .frame(width: UI.settingsActionWidth)
                 }
-                .prominentActionButton()
-                .frame(minWidth: UI.settingsActionWidth)
             }
         }
         .disabled(model.selectedDeviceID == nil && model.connectedDevice == nil)
