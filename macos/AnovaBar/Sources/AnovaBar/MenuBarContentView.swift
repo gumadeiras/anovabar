@@ -7,7 +7,8 @@ struct MenuBarContentView: View {
         static let panelSpacing: CGFloat = 10
         static let panelPadding: CGFloat = 12
         static let rowLabelWidth: CGFloat = 74
-        static let controlFieldWidth: CGFloat = 150
+        static let controlFieldWidth: CGFloat = 118
+        static let controlInputCharacterLimit = 6
         static let settingsActionWidth: CGFloat = 50
         static let unitPickerWidth: CGFloat = 118
         static let headerIconButtonSize: CGFloat = 26
@@ -219,7 +220,7 @@ struct MenuBarContentView: View {
             }
 
             editableRow(label: "Temp (\(model.selectedUnit.symbol))") {
-                TextField("", text: $model.targetTemperatureText)
+                TextField("", text: limitedText($model.targetTemperatureText))
                     .fieldStyle()
 
                 Button("Set", action: asyncAction(model.applySetTemperature))
@@ -227,7 +228,7 @@ struct MenuBarContentView: View {
             }
 
             editableRow(label: "Timer (min)") {
-                TextField("", text: $model.timerMinutesText)
+                TextField("", text: limitedText($model.timerMinutesText))
                     .fieldStyle()
 
                 Button("Set", action: asyncAction(model.applyTimer))
@@ -567,6 +568,13 @@ struct MenuBarContentView: View {
                 await action()
             }
         }
+    }
+
+    private func limitedText(_ text: Binding<String>) -> Binding<String> {
+        Binding(
+            get: { text.wrappedValue },
+            set: { text.wrappedValue = String($0.prefix(UI.controlInputCharacterLimit)) }
+        )
     }
 }
 
