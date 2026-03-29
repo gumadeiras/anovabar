@@ -45,6 +45,18 @@ On macOS, BLE commands from a bare CLI process are blocked by TCC. Build the sta
 
 The launcher starts `AnovaBarCLI.app` through LaunchServices so macOS can apply the bundle's Bluetooth permission metadata while still giving you a terminal command. `cargo run` still works for non-BLE commands such as `--help`, tests, and local development.
 
+Install the macOS CLI in one step:
+
+```bash
+./macos/install-cli.sh
+```
+
+That installs the app bundle under `~/.local/share/anovabar/AnovaBarCLI.app` and the `anovabar` launcher under `~/.local/bin/anovabar`. If `~/.local/bin` is not already on your `PATH`, add:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
 ## Project Layout
 
 - `macos/AnovaBar`: native menu bar app
