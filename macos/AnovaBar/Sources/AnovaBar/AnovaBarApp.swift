@@ -18,9 +18,16 @@ struct AnovaBarApp: App {
         } label: {
             HStack(spacing: 5) {
                 Image(systemName: model.menuBarIconName)
-                Text(model.menuBarTitle)
-                    .lineLimit(1)
-                    .monospacedDigit()
+
+                if let thermalSymbolName = model.menuBarThermalDirectionSymbolName {
+                    Image(systemName: thermalSymbolName)
+                }
+
+                if !model.menuBarTitle.isEmpty {
+                    Text(model.menuBarTitle)
+                        .lineLimit(1)
+                        .monospacedDigit()
+                }
             }
         }
         .menuBarExtraStyle(.window)

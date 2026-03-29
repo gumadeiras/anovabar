@@ -178,10 +178,6 @@ final class AppModel: ObservableObject {
     }
 
     var menuBarTitle: String {
-        guard connectedDevice != nil else {
-            return "AnovaBar"
-        }
-
         var segments: [String] = []
 
         if menuBarShowsCurrentTemp, let currentText = menuBarCurrentTemperatureText {
@@ -192,7 +188,7 @@ final class AppModel: ObservableObject {
             segments.append(timerText)
         }
 
-        return segments.isEmpty ? "AnovaBar" : segments.joined(separator: " · ")
+        return segments.joined(separator: " · ")
     }
 
     var systemInfoText: String {
@@ -257,10 +253,34 @@ final class AppModel: ObservableObject {
         }
 
         if rawText.contains("waiting to reach temperature") {
-            return "Heating"
+            return nil
         }
 
         return rawText
+    }
+
+    var menuBarThermalDirectionSymbolName: String? {
+        guard menuBarShowsTimer else {
+            return nil
+        }
+
+        let rawText = timerDisplayText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard rawText.contains("waiting to reach temperature"),
+              let current = observedState.currentDisplayTemperature,
+              let target = observedState.targetDisplayTemperature
+        else {
+            return nil
+        }
+
+        if target > current + 0.05 {
+            return "arrow.up"
+        }
+
+        if target < current - 0.05 {
+            return "arrow.down"
+        }
+
+        return nil
     }
 
     var rawReadingsText: String {
