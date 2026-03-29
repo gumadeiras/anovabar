@@ -13,7 +13,7 @@ struct AnovaBarApp: App {
     @StateObject private var model = AppModel()
 
     var body: some Scene {
-        MenuBarExtra("AnovaBar", systemImage: model.menuBarIconName) {
+        MenuBarExtra(model.menuBarTitle, systemImage: model.menuBarIconName) {
             MenuBarContentView(model: model)
         }
         .menuBarExtraStyle(.window)

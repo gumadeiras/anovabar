@@ -5,6 +5,8 @@ final class AppModel: ObservableObject {
     private static let aliasStorageKey = "deviceAliases"
     private static let cookStateStorageKey = "deviceCookState"
     private static let debugEnabledStorageKey = "debugEnabled"
+    private static let menuBarShowsCurrentTempStorageKey = "menuBarShowsCurrentTemp"
+    private static let menuBarShowsTimerStorageKey = "menuBarShowsTimer"
 
     private struct PersistedCookState: Codable {
         var targetTemperature: Double?
@@ -130,6 +132,8 @@ final class AppModel: ObservableObject {
     @Published private(set) var hasCompletedScan = false
     @Published private(set) var bleTraceText = MiniDiagnosticsStore.emptyText
     @Published var isDebugEnabled: Bool
+    @Published var menuBarShowsCurrentTemp: Bool
+    @Published var menuBarShowsTimer: Bool
     @Published var targetTemperatureText = "60.0"
     @Published var timerMinutesText = "0"
     @Published var selectedUnit: MiniTemperatureUnit = .celsius
@@ -155,6 +159,8 @@ final class AppModel: ObservableObject {
         self.coordinator = AnovaBLECoordinator(diagnostics: diagnostics)
         self.deviceAliases = defaults.dictionary(forKey: Self.aliasStorageKey) as? [String: String] ?? [:]
         self.isDebugEnabled = defaults.object(forKey: Self.debugEnabledStorageKey) as? Bool ?? false
+        self.menuBarShowsCurrentTemp = defaults.object(forKey: Self.menuBarShowsCurrentTempStorageKey) as? Bool ?? false
+        self.menuBarShowsTimer = defaults.object(forKey: Self.menuBarShowsTimerStorageKey) as? Bool ?? false
         if let data = defaults.data(forKey: Self.cookStateStorageKey),
            let decoded = try? JSONDecoder().decode([String: PersistedCookState].self, from: data) {
             self.deviceCookState = decoded
@@ -169,6 +175,24 @@ final class AppModel: ObservableObject {
 
     var menuBarIconName: String {
         connectedDevice == nil ? "thermometer.medium.slash" : "thermometer.medium"
+    }
+
+    var menuBarTitle: String {
+        guard connectedDevice != nil else {
+            return "AnovaBar"
+        }
+
+        var segments: [String] = []
+
+        if menuBarShowsCurrentTemp, let currentText = menuBarCurrentTemperatureText {
+            segments.append(currentText)
+        }
+
+        if menuBarShowsTimer, let timerText = menuBarTimerText {
+            segments.append(timerText)
+        }
+
+        return segments.isEmpty ? "AnovaBar" : segments.joined(separator: " · ")
     }
 
     var systemInfoText: String {
@@ -203,6 +227,40 @@ final class AppModel: ObservableObject {
 
     var timerDisplayText: String {
         sessionState.timerDisplayText(now: timerNow, fallback: observedState.snapshot?.timerDisplay)
+    }
+
+    var menuBarCurrentTemperatureText: String? {
+        let unit = selectedUnit
+        guard let value = observedState.currentDisplayTemperature else {
+            return nil
+        }
+
+        let displayValue = unit == .fahrenheit
+            ? Self.convertTemperature(value, from: .celsius, to: .fahrenheit)
+            : value
+
+        return "\(MiniFormat.temperature(displayValue))\(unit.symbol)"
+    }
+
+    var menuBarTimerText: String? {
+        guard connectedDevice != nil else {
+            return nil
+        }
+
+        let rawText = timerDisplayText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !rawText.isEmpty, rawText != "Unavailable" else {
+            return nil
+        }
+
+        if rawText.hasPrefix("Completed at") {
+            return "Done"
+        }
+
+        if rawText.contains("waiting to reach temperature") {
+            return "Heating"
+        }
+
+        return rawText
     }
 
     var rawReadingsText: String {
@@ -244,6 +302,26 @@ final class AppModel: ObservableObject {
         isDebugEnabled = isEnabled
         defaults.set(isEnabled, forKey: Self.debugEnabledStorageKey)
         recordApp("debugModeChanged enabled=\(isEnabled)")
+    }
+
+    func setMenuBarShowsCurrentTemp(_ isEnabled: Bool) {
+        guard menuBarShowsCurrentTemp != isEnabled else {
+            return
+        }
+
+        menuBarShowsCurrentTemp = isEnabled
+        defaults.set(isEnabled, forKey: Self.menuBarShowsCurrentTempStorageKey)
+        recordApp("menuBarShowsCurrentTempChanged enabled=\(isEnabled)")
+    }
+
+    func setMenuBarShowsTimer(_ isEnabled: Bool) {
+        guard menuBarShowsTimer != isEnabled else {
+            return
+        }
+
+        menuBarShowsTimer = isEnabled
+        defaults.set(isEnabled, forKey: Self.menuBarShowsTimerStorageKey)
+        recordApp("menuBarShowsTimerChanged enabled=\(isEnabled)")
     }
 
     func loadIfNeeded() async {

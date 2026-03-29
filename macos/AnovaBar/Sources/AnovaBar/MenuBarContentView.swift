@@ -293,6 +293,7 @@ struct MenuBarContentView: View {
             }
 
             renamePanel
+            menuBarPanel
             debugPanel
             footerRow
         }
@@ -455,33 +456,70 @@ struct MenuBarContentView: View {
 
     private var debugPanel: some View {
         VStack(alignment: .leading, spacing: 12) {
-            HStack(alignment: .top, spacing: UI.panelSpacing) {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Debug Mode")
-                        .sectionTitle()
-                    Text("Show System Info, BLE Trace, and BLE Payloads in the main view.")
-                        .font(.system(size: 12))
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
-                }
-
-                Spacer(minLength: 0)
-
-                Toggle(
-                    "Debug Mode",
-                    isOn: Binding(
-                        get: { model.isDebugEnabled },
-                        set: { model.setDebugEnabled($0) }
-                    )
+            settingToggleRow(
+                title: "Debug Mode",
+                subtitle: "Show System Info, BLE Trace, and BLE Payloads in the main view.",
+                isOn: Binding(
+                    get: { model.isDebugEnabled },
+                    set: { model.setDebugEnabled($0) }
                 )
+            )
+        }
+        .padding(UI.panelPadding)
+        .panelBackground()
+    }
+
+    private var menuBarPanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Menu Bar")
+                .sectionTitle()
+
+            Text("Choose which live readings appear next to the menu bar icon.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            settingToggleRow(
+                title: "Current Temp",
+                subtitle: "Show the current water temperature.",
+                isOn: Binding(
+                    get: { model.menuBarShowsCurrentTemp },
+                    set: { model.setMenuBarShowsCurrentTemp($0) }
+                )
+            )
+
+            settingToggleRow(
+                title: "Timer",
+                subtitle: "Show the active timer state.",
+                isOn: Binding(
+                    get: { model.menuBarShowsTimer },
+                    set: { model.setMenuBarShowsTimer($0) }
+                )
+            )
+        }
+        .padding(UI.panelPadding)
+        .panelBackground()
+    }
+
+    private func settingToggleRow(title: String, subtitle: String, isOn: Binding<Bool>) -> some View {
+        HStack(alignment: .top, spacing: UI.panelSpacing) {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .sectionTitle()
+                Text(subtitle)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+
+            Toggle(title, isOn: isOn)
                 .labelsHidden()
                 .toggleStyle(.switch)
                 .controlSize(.regular)
                 .tint(UI.accent)
-            }
         }
-        .padding(UI.panelPadding)
-        .panelBackground()
     }
 
     private func detailField(title: String, value: String, monospaced: Bool = false) -> some View {
