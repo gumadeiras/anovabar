@@ -22,6 +22,9 @@ const MINI_SYSTEM_INFO_UUID: Uuid = Uuid::from_u128(0x153c94327c834b889252758822
 
 const DEFAULT_SCAN_TIMEOUT: Duration = Duration::from_secs(5);
 const DEFAULT_COMMAND_TIMEOUT: Duration = Duration::from_secs(10);
+const MINI_CONFIRMATION_POLL_INTERVAL: Duration = Duration::from_millis(350);
+const MINI_START_CONFIRMATION_ATTEMPTS: usize = 10;
+const MINI_STOP_CONFIRMATION_ATTEMPTS: usize = 24;
 
 /// Parameters used by the Mini `start` command.
 #[derive(Clone, Debug, PartialEq)]
@@ -37,8 +40,8 @@ impl StartCookOptions {
         Self {
             setpoint,
             timer_seconds: 0,
-            cookable_id: "recipe123".to_string(),
-            cookable_type: "recipe".to_string(),
+            cookable_id: "menubar".to_string(),
+            cookable_type: "manual".to_string(),
         }
     }
 }
@@ -160,9 +163,37 @@ where
         .await
     }
 
+    pub async fn start_cook_confirmed(&self, options: StartCookOptions) -> Result<()> {
+        let setpoint = options.setpoint;
+        let timer_seconds = options.timer_seconds;
+
+        self.set_clock_to_utc_now().await?;
+        self.start_cook(options).await?;
+        self.poll_until(
+            MINI_START_CONFIRMATION_ATTEMPTS,
+            format!("mini cooker did not confirm a running state for setpoint {setpoint:.1} and timer {timer_seconds}s"),
+            |snapshot| snapshot.matches_running(setpoint, timer_seconds),
+        )
+        .await?;
+
+        Ok(())
+    }
+
     pub async fn stop_cook(&self) -> Result<()> {
         self.write_json(MINI_STATE_UUID, json!({ "command": "stop" }), false)
             .await
+    }
+
+    pub async fn stop_cook_confirmed(&self) -> Result<()> {
+        self.stop_cook().await?;
+        self.poll_until(
+            MINI_STOP_CONFIRMATION_ATTEMPTS,
+            "mini cooker did not confirm a stopped state".to_string(),
+            MiniFullState::matches_stopped,
+        )
+        .await?;
+
+        Ok(())
     }
 
     async fn read_json(&self, characteristic: Uuid) -> Result<Value> {
@@ -178,6 +209,29 @@ where
         self.transport
             .write(characteristic, &payload, response)
             .await
+    }
+
+    async fn poll_until<F>(
+        &self,
+        attempts: usize,
+        error_message: String,
+        predicate: F,
+    ) -> Result<MiniFullState>
+    where
+        F: Fn(&MiniFullState) -> bool,
+    {
+        for attempt in 0..attempts {
+            if attempt > 0 {
+                tokio::time::sleep(MINI_CONFIRMATION_POLL_INTERVAL).await;
+            }
+
+            let snapshot = self.get_full_state().await?;
+            if predicate(&snapshot) {
+                return Ok(snapshot);
+            }
+        }
+
+        Err(crate::error::Error::StateUnconfirmed(error_message))
     }
 }
 

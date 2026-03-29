@@ -476,9 +476,7 @@ async fn run_mini(args: MiniArgs) -> anovabar::Result<()> {
                     options.timer_seconds = args.timer_seconds;
                     options.cookable_id = args.cookable_id;
                     options.cookable_type = args.cookable_type;
-                    device.set_clock_to_utc_now().await?;
-                    device.start_cook(options).await?;
-                    confirm_mini_start(device, args.setpoint, args.timer_seconds).await?;
+                    device.start_cook_confirmed(options).await?;
                     println!("started=true");
                     Ok(())
                 })
@@ -488,8 +486,7 @@ async fn run_mini(args: MiniArgs) -> anovabar::Result<()> {
         MiniCommand::Stop(options) => {
             with_mini(options, |device| {
                 Box::pin(async move {
-                    device.stop_cook().await?;
-                    confirm_mini_stop(device).await?;
+                    device.stop_cook_confirmed().await?;
                     println!("stopped=true");
                     Ok(())
                 })
@@ -683,111 +680,6 @@ fn validate_mini_setpoint(value: f64, unit: TemperatureUnit) -> anovabar::Result
         unit.as_symbol(),
         unit.as_symbol()
     )))
-}
-
-async fn confirm_mini_start(
-    device: &AnovaMini,
-    setpoint: f64,
-    timer_seconds: u64,
-) -> anovabar::Result<()> {
-    for attempt in 0..10 {
-        sleep_for_mini_confirmation_attempt(attempt).await;
-        let snapshot = device.get_full_state().await?;
-        if mini_snapshot_matches_running(&snapshot, setpoint, timer_seconds) {
-            return Ok(());
-        }
-    }
-
-    Err(anovabar::Error::InvalidInput(format!(
-        "mini cooker did not confirm a running state for setpoint {setpoint:.1} and timer {timer_seconds}s"
-    )))
-}
-
-async fn confirm_mini_stop(device: &AnovaMini) -> anovabar::Result<()> {
-    for attempt in 0..24 {
-        sleep_for_mini_confirmation_attempt(attempt).await;
-        let snapshot = device.get_full_state().await?;
-        if mini_snapshot_matches_stopped(&snapshot) {
-            return Ok(());
-        }
-    }
-
-    Err(anovabar::Error::InvalidInput(
-        "mini cooker did not confirm a stopped state".to_string(),
-    ))
-}
-
-async fn sleep_for_mini_confirmation_attempt(attempt: usize) {
-    const POLL_INTERVAL_MS: u64 = 350;
-
-    if attempt > 0 {
-        tokio::time::sleep(Duration::from_millis(POLL_INTERVAL_MS)).await;
-    }
-}
-
-fn mini_snapshot_matches_running(
-    snapshot: &MiniFullState,
-    setpoint: f64,
-    timer_seconds: u64,
-) -> bool {
-    let state_mode = snapshot
-        .state
-        .get("mode")
-        .and_then(Value::as_str)
-        .map(str::to_ascii_lowercase);
-    let timer_mode = snapshot
-        .timer
-        .get("mode")
-        .and_then(Value::as_str)
-        .map(str::to_ascii_lowercase);
-
-    let running = state_mode.as_deref().is_some_and(is_running_mode)
-        || timer_mode.as_deref().is_some_and(is_running_mode);
-    if !running {
-        return false;
-    }
-
-    let target_matches = snapshot
-        .state
-        .get("setpoint")
-        .and_then(Value::as_f64)
-        .or_else(|| snapshot.current_temperature.get("setpoint").and_then(Value::as_f64))
-        .is_none_or(|current| (current - setpoint).abs() <= 0.2);
-    if !target_matches {
-        return false;
-    }
-
-    if timer_seconds == 0 {
-        return true;
-    }
-
-    snapshot
-        .timer
-        .get("remaining")
-        .and_then(Value::as_u64)
-        .or_else(|| snapshot.timer.get("timerSeconds").and_then(Value::as_u64))
-        .or_else(|| snapshot.timer.get("initial").and_then(Value::as_u64))
-        .is_some_and(|seconds| seconds > 0 && seconds <= timer_seconds)
-}
-
-fn mini_snapshot_matches_stopped(snapshot: &MiniFullState) -> bool {
-    let state_mode = snapshot
-        .state
-        .get("mode")
-        .and_then(Value::as_str)
-        .map(str::to_ascii_lowercase);
-    let timer_mode = snapshot
-        .timer
-        .get("mode")
-        .and_then(Value::as_str)
-        .map(str::to_ascii_lowercase);
-
-    !state_mode.as_deref().is_some_and(is_running_mode)
-        && !timer_mode.as_deref().is_some_and(is_running_mode)
-}
-
-fn is_running_mode(mode: &str) -> bool {
-    matches!(mode, "cook" | "cooking" | "running" | "active")
 }
 
 async fn with_nano<F>(options: DeviceOptions, operation: F) -> anovabar::Result<()>

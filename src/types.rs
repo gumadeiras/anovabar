@@ -103,4 +103,89 @@ impl MiniFullState {
     pub fn current_temperature_value(&self) -> Option<f64> {
         self.current_temperature.get("current")?.as_f64()
     }
+
+    pub fn target_temperature_value(&self) -> Option<f64> {
+        self.state
+            .get("setpoint")
+            .and_then(Value::as_f64)
+            .or_else(|| self.current_temperature.get("setpoint").and_then(Value::as_f64))
+    }
+
+    pub fn state_mode(&self) -> Option<&str> {
+        self.state.get("mode").and_then(Value::as_str)
+    }
+
+    pub fn timer_mode(&self) -> Option<&str> {
+        self.timer.get("mode").and_then(Value::as_str)
+    }
+
+    pub fn timer_seconds_value(&self) -> Option<u64> {
+        self.timer
+            .get("remaining")
+            .and_then(Value::as_u64)
+            .or_else(|| self.timer.get("timerSeconds").and_then(Value::as_u64))
+            .or_else(|| self.timer.get("initial").and_then(Value::as_u64))
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.state_mode().is_some_and(is_running_mode)
+            || self.timer_mode().is_some_and(is_running_mode)
+    }
+
+    pub fn matches_running(&self, setpoint: f64, timer_seconds: u64) -> bool {
+        if !self.is_running() {
+            return false;
+        }
+
+        if !self
+            .target_temperature_value()
+            .is_none_or(|current| (current - setpoint).abs() <= 0.2)
+        {
+            return false;
+        }
+
+        if timer_seconds == 0 {
+            return true;
+        }
+
+        self.timer_seconds_value()
+            .is_some_and(|seconds| seconds > 0 && seconds <= timer_seconds)
+    }
+
+    pub fn matches_stopped(&self) -> bool {
+        !self.is_running()
+    }
+}
+
+fn is_running_mode(mode: &str) -> bool {
+    matches!(mode, "cook" | "cooking" | "running" | "active")
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::MiniFullState;
+
+    #[test]
+    fn mini_full_state_matches_running_when_state_is_active() {
+        let state = MiniFullState {
+            state: json!({ "mode": "cook", "setpoint": 37.5 }),
+            current_temperature: json!({ "current": 37.0 }),
+            timer: json!({ "initial": 120, "mode": "idle" }),
+        };
+
+        assert!(state.matches_running(37.5, 120));
+    }
+
+    #[test]
+    fn mini_full_state_matches_stopped_when_no_active_modes_exist() {
+        let state = MiniFullState {
+            state: json!({ "mode": "idle" }),
+            current_temperature: json!({ "current": 37.0 }),
+            timer: json!({ "initial": 120, "mode": "idle" }),
+        };
+
+        assert!(state.matches_stopped());
+    }
 }

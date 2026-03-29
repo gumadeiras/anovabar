@@ -24,6 +24,8 @@ pub enum Error {
     InvalidInput(String),
     #[error("missing sensor value: {0}")]
     MissingSensor(&'static str),
+    #[error("device did not confirm the expected state: {0}")]
+    StateUnconfirmed(String),
     #[error("base64 decode error: {0}")]
     Base64Decode(#[from] base64::DecodeError),
     #[error("json error: {0}")]
