@@ -8,6 +8,7 @@ struct MenuBarContentView: View {
         static let panelPadding: CGFloat = 12
         static let rowLabelWidth: CGFloat = 82
         static let controlFieldWidth: CGFloat = 168
+        static let settingsActionWidth: CGFloat = 72
         static let unitPickerWidth: CGFloat = 118
         static let headerIconButtonSize: CGFloat = 26
         static let headerIconGlyphSize: CGFloat = 13
@@ -282,30 +283,14 @@ struct MenuBarContentView: View {
     }
 
     private var deviceDetailsBody: some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("Device Details")
-                        .font(.system(size: 15, weight: .semibold))
-                    Text(model.connectedDeviceTitle)
-                        .font(.system(size: 13))
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer()
-
-                Button("Done") {
-                    showingDeviceDetails = false
-                }
-                .actionButton()
-            }
+        VStack(alignment: .leading, spacing: UI.panelSpacing) {
+            settingsHeader
 
             if let device = model.connectedDevice {
-                detailRow(title: "Name", value: device.name)
-                detailRow(title: "UUID", value: device.identifier)
+                deviceInfoPanel(device: device)
             }
 
-            renameRow
+            renamePanel
             footerRow
         }
         .padding(UI.panelPadding)
@@ -340,29 +325,6 @@ struct MenuBarContentView: View {
         }
     }
 
-    private var renameRow: some View {
-        HStack(spacing: UI.panelSpacing) {
-            Text("Name")
-                .font(.system(size: 13))
-                .foregroundStyle(.secondary)
-                .frame(width: UI.rowLabelWidth, alignment: .leading)
-
-            TextField("Kitchen Mini", text: $model.aliasText)
-                .fieldStyle()
-
-            Button("Save") {
-                model.saveAlias()
-            }
-            .actionButton()
-
-            Button("Clear") {
-                model.clearAlias()
-            }
-            .actionButton()
-        }
-        .disabled(model.selectedDeviceID == nil && model.connectedDevice == nil)
-    }
-
     private func valueRow(title: String, value: String) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: UI.panelSpacing) {
             Text(title)
@@ -390,14 +352,104 @@ struct MenuBarContentView: View {
         }
     }
 
-    private func detailRow(title: String, value: String) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title)
+    private var settingsHeader: some View {
+        HStack(alignment: .top, spacing: UI.panelSpacing) {
+            VStack(alignment: .leading, spacing: 3) {
+                Text("Device Details")
+                    .font(.system(size: 18, weight: .bold))
+                Text("Review device identity and customize its saved display name.")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+
+            Button("Done") {
+                showingDeviceDetails = false
+            }
+            .actionButton()
+        }
+    }
+
+    private func deviceInfoPanel(device: MiniDiscoveredDevice) -> some View {
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                brandIcon(size: 26, symbolSize: 13)
+
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(model.connectedDeviceTitle)
+                        .font(.system(size: 15, weight: .semibold))
+                    Text("Connected device")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+            }
+
+            VStack(alignment: .leading, spacing: 10) {
+                detailField(title: "Device Name", value: device.name)
+                detailField(title: "UUID", value: device.identifier, monospaced: true)
+            }
+        }
+        .padding(UI.panelPadding)
+        .panelBackground()
+    }
+
+    private var renamePanel: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text("Saved Display Name")
+                .sectionTitle()
+
+            Text("Use a custom label for this specific device. It appears in the picker and header.")
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
-            Text(value)
-                .font(.system(size: 13))
-                .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
+
+            TextField("Kitchen Mini", text: $model.aliasText)
+                .settingsFieldStyle()
+
+            HStack(spacing: 8) {
+                Spacer(minLength: 0)
+
+                Button("Clear") {
+                    model.clearAlias()
+                }
+                .actionButton()
+                .frame(minWidth: UI.settingsActionWidth)
+
+                Button("Save") {
+                    model.saveAlias()
+                }
+                .prominentActionButton()
+                .frame(minWidth: UI.settingsActionWidth)
+            }
+        }
+        .disabled(model.selectedDeviceID == nil && model.connectedDevice == nil)
+        .padding(UI.panelPadding)
+        .panelBackground()
+    }
+
+    private func detailField(title: String, value: String, monospaced: Bool = false) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title.uppercased())
+                .font(.system(size: 11, weight: .semibold))
+                .tracking(0.5)
+                .foregroundStyle(.secondary)
+
+            Group {
+                if monospaced {
+                    Text(value)
+                        .font(.system(size: 13, design: .monospaced))
+                } else {
+                    Text(value)
+                        .font(.system(size: 15, weight: .semibold))
+                }
+            }
+            .textSelection(.enabled)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .background(Color.white.opacity(0.04), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
         }
     }
 
@@ -487,6 +539,16 @@ private extension View {
             .frame(width: MenuBarContentView.UI.controlFieldWidth)
             .padding(.horizontal, 10)
             .padding(.vertical, 7)
+            .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+
+    func settingsFieldStyle() -> some View {
+        textFieldStyle(.plain)
+            .font(.system(size: 14))
+            .frame(maxWidth: .infinity)
+            .frame(height: 20)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
             .background(Color.white.opacity(0.05), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
     }
 
