@@ -6,6 +6,8 @@
 
 Bluetooth control for Anova cookers, with a macOS menu bar app and a Rust CLI.
 
+Sous vide, but make it tiny and fast.
+
 ## What It Does
 
 - Scan and connect to supported Anova cookers
@@ -34,14 +36,14 @@ Run the CLI:
 cargo run -- --help
 ```
 
-On macOS, BLE commands from a bare CLI process are blocked by TCC. Build the signed CLI app bundle first if you want the Rust CLI to talk to Bluetooth:
+On macOS, BLE commands from a bare CLI process are blocked by TCC. Build the standalone signed CLI app bundle and use the generated launcher:
 
 ```bash
 ./macos/build-cli-app.sh
-open dist/AnovaBarCLI.app --args mini scan --scan-timeout 5
+./dist/anovabar mini scan --scan-timeout 5
 ```
 
-`cargo run` still works for non-BLE commands such as `--help`, tests, and local development. The Bluetooth permission is attached to the signed app bundle process, not to an unbundled executable launched directly from the terminal.
+The launcher starts `AnovaBarCLI.app` through LaunchServices so macOS can apply the bundle's Bluetooth permission metadata while still giving you a terminal command. `cargo run` still works for non-BLE commands such as `--help`, tests, and local development.
 
 ## Project Layout
 
@@ -55,5 +57,3 @@ open dist/AnovaBarCLI.app --args mini scan --scan-timeout 5
 Issues and PRs are welcome.
 
 If you have a cooker model that is not supported yet, contributions for new model support are especially useful.
-
-Sous vide, but make it tiny and fast.
