@@ -24,15 +24,14 @@ struct MenuBarContentView: View {
     @State private var showingDeviceDetails = false
 
     var body: some View {
-        content
-            .frame(width: UI.width)
-            .alert("Bluetooth Error", isPresented: errorBinding) {
-                Button("OK", role: .cancel) {
-                    model.lastError = nil
-                }
-            } message: {
-                Text(model.lastError ?? "")
+        ZStack {
+            content
+
+            if let presentedError = model.presentedError {
+                errorOverlay(presentedError)
             }
+        }
+            .frame(width: UI.width)
             .task {
                 await model.loadIfNeeded()
             }
@@ -239,7 +238,7 @@ struct MenuBarContentView: View {
                 Spacer(minLength: 0)
 
                 Button("Stop", action: asyncAction(model.stopCook))
-                    .actionButton()
+                    .destructiveActionButton()
                     .disabled(!model.canStopCook)
 
                 Button("Start Cook", action: asyncAction(model.startCook))
@@ -551,15 +550,86 @@ struct MenuBarContentView: View {
         .help(help)
     }
 
-    private var errorBinding: Binding<Bool> {
-        Binding(
-            get: { model.lastError != nil },
-            set: { newValue in
-                if !newValue {
-                    model.lastError = nil
+    private func errorOverlay(_ presentedError: AppModel.PresentedError) -> some View {
+        ZStack {
+            Color.black.opacity(0.58)
+                .ignoresSafeArea()
+
+            VStack(spacing: 16) {
+                ZStack {
+                    RoundedRectangle(cornerRadius: 16, style: .continuous)
+                        .fill(errorIconFill(for: presentedError.kind))
+                        .frame(width: 56, height: 56)
+
+                    Image(systemName: errorIconName(for: presentedError.kind))
+                        .font(.system(size: 23, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.96))
                 }
+
+                VStack(spacing: 8) {
+                    Text(presentedError.title)
+                        .font(.system(size: 17, weight: .bold))
+                        .multilineTextAlignment(.center)
+
+                    Text(presentedError.message)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white.opacity(0.90))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                Button("OK") {
+                    model.dismissError()
+                }
+                .primaryActionButton()
+                .frame(maxWidth: .infinity)
             }
-        )
+            .padding(18)
+            .frame(maxWidth: 260)
+            .background(
+                RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    .fill(Color(red: 0.17, green: 0.17, blue: 0.17))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .strokeBorder(Color.white.opacity(0.18), lineWidth: 1)
+                    )
+            )
+            .shadow(color: .black.opacity(0.35), radius: 20, y: 12)
+        }
+    }
+
+    private func errorIconName(for kind: AppModel.PresentedError.Kind) -> String {
+        switch kind {
+        case .bluetooth:
+            return "bolt.horizontal.fill"
+        case .response:
+            return "exclamationmark.triangle.fill"
+        case .state:
+            return "thermometer.medium.slash"
+        }
+    }
+
+    private func errorIconFill(for kind: AppModel.PresentedError.Kind) -> LinearGradient {
+        switch kind {
+        case .bluetooth:
+            return LinearGradient(
+                colors: [
+                    Color(red: 0.33, green: 0.52, blue: 0.88),
+                    Color(red: 0.20, green: 0.35, blue: 0.73),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .response, .state:
+            return LinearGradient(
+                colors: [
+                    Color(red: 0.86, green: 0.38, blue: 0.20),
+                    Color(red: 0.70, green: 0.20, blue: 0.16),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        }
     }
 
     private func asyncAction(_ action: @escaping @MainActor () async -> Void) -> () -> Void {
@@ -635,6 +705,10 @@ private extension View {
         buttonStyle(AppButtonStyle(variant: .prominent))
     }
 
+    func destructiveActionButton() -> some View {
+        buttonStyle(AppButtonStyle(variant: .destructive))
+    }
+
     func primaryActionButton() -> some View {
         prominentActionButton()
     }
@@ -647,6 +721,7 @@ private extension View {
 private enum AppButtonVariant {
     case secondary
     case prominent
+    case destructive
     case icon
 }
 
@@ -678,7 +753,7 @@ private struct AppButtonStyle: ButtonStyle {
 
     private func foregroundColor(isPressed: Bool) -> Color {
         switch variant {
-        case .prominent:
+        case .prominent, .destructive:
             return .white.opacity(isPressed ? 0.92 : 0.98)
         case .secondary, .icon:
             return .white.opacity(isPressed ? 0.88 : 0.96)
@@ -697,6 +772,20 @@ private struct AppButtonStyle: ButtonStyle {
                     : [
                         MenuBarContentView.UI.accent,
                         Color(red: 0.72, green: 0.34, blue: 0.09),
+                    ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+        case .destructive:
+            return LinearGradient(
+                colors: isPressed
+                    ? [
+                        Color(red: 0.72, green: 0.24, blue: 0.22).opacity(0.90),
+                        Color(red: 0.54, green: 0.12, blue: 0.12).opacity(0.86),
+                    ]
+                    : [
+                        Color(red: 0.78, green: 0.28, blue: 0.24),
+                        Color(red: 0.58, green: 0.13, blue: 0.12),
                     ],
                 startPoint: .topLeading,
                 endPoint: .bottomTrailing
@@ -720,7 +809,7 @@ private struct AppButtonStyle: ButtonStyle {
 
     private func borderColor(isPressed: Bool) -> Color {
         switch variant {
-        case .prominent:
+        case .prominent, .destructive:
             return Color.white.opacity(isPressed ? 0.12 : 0.10)
         case .secondary, .icon:
             return Color.white.opacity(isPressed ? 0.16 : 0.10)
@@ -731,7 +820,7 @@ private struct AppButtonStyle: ButtonStyle {
         switch variant {
         case .secondary:
             return (10, 6, 10, 13)
-        case .prominent:
+        case .prominent, .destructive:
             return (12, 7, 10, 13)
         case .icon:
             return (0, 0, 9, 13)

@@ -29,6 +29,22 @@ enum OriginalCookerModel: String {
     }
 }
 
+enum OriginalCommandPolicy {
+    static func timeout(for command: String) -> TimeInterval {
+        acceptsMissingResponse(for: command) ? 1.5 : 15
+    }
+
+    static func acceptsMissingResponse(for command: String) -> Bool {
+        let normalized = command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        return normalized == "start"
+            || normalized == "stop"
+            || normalized == "start time"
+            || normalized == "stop time"
+            || normalized == "clear alarm"
+            || normalized.hasPrefix("set ")
+    }
+}
+
 @MainActor
 enum OriginalDiscovery {
     static let defaultName = "Anova Precision Cooker"

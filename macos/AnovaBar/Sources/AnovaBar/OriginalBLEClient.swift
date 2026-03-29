@@ -136,12 +136,14 @@ final class OriginalBLEClient: NSObject {
         _ = try await sendCommand("stop")
     }
 
-    private func sendCommand(_ command: String, timeout seconds: TimeInterval = 15) async throws -> String {
+    private func sendCommand(_ command: String, timeout seconds: TimeInterval? = nil) async throws -> String {
         guard let characteristic = commandCharacteristic else {
             throw MiniBLEClientError.missingCharacteristic("command")
         }
         let peripheral = try activePeripheral()
         let data = Data((command + "\r").utf8)
+        let timeout = seconds ?? OriginalCommandPolicy.timeout(for: command)
+        let acceptsMissingResponse = OriginalCommandPolicy.acceptsMissingResponse(for: command)
 
         recordBLE("write", details: ["characteristic": "command", "payload": command, "family": "original"])
 
@@ -156,14 +158,23 @@ final class OriginalBLEClient: NSObject {
             peripheral.writeValue(data, for: characteristic, type: .withoutResponse)
 
             Task { @MainActor [weak self] in
-                try? await Task.sleep(for: .seconds(seconds))
+                try? await Task.sleep(for: .seconds(timeout))
                 guard let self, let pending = self.commandContinuation else {
                     return
                 }
 
                 self.commandContinuation = nil
                 self.responseBuffer.removeAll()
-                pending.resume(throwing: MiniBLEClientError.invalidPayload("Timed out waiting for command response."))
+                if acceptsMissingResponse {
+                    self.recordBLE("writeTimeoutAccepted", details: [
+                        "characteristic": "command",
+                        "payload": command,
+                        "family": "original",
+                    ])
+                    pending.resume(returning: "")
+                } else {
+                    pending.resume(throwing: MiniBLEClientError.invalidPayload("Timed out waiting for command response."))
+                }
             }
         }
     }

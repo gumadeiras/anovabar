@@ -60,4 +60,14 @@ struct OriginalBLEProtocolTests {
             advertisedServices: [MiniBLEUUIDs.service]
         ) == false)
     }
+
+    @Test
+    func commandPolicyTreatsMutatingCommandsAsBestEffort() {
+        #expect(OriginalCommandPolicy.acceptsMissingResponse(for: "set temp 48.0"))
+        #expect(OriginalCommandPolicy.acceptsMissingResponse(for: "start"))
+        #expect(OriginalCommandPolicy.acceptsMissingResponse(for: "stop"))
+        #expect(OriginalCommandPolicy.acceptsMissingResponse(for: "read temp") == false)
+        #expect(OriginalCommandPolicy.timeout(for: "set timer 30") == 1.5)
+        #expect(OriginalCommandPolicy.timeout(for: "status") == 15)
+    }
 }

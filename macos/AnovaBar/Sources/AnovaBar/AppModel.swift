@@ -82,6 +82,43 @@ final class AppModel: ObservableObject {
         var sessionState: MiniCookSessionState
     }
 
+    struct PresentedError: Identifiable {
+        enum Kind {
+            case bluetooth
+            case response
+            case state
+        }
+
+        let id = UUID()
+        let title: String
+        let message: String
+        let kind: Kind
+
+        init(error: Error) {
+            message = error.localizedDescription
+
+            switch error {
+            case MiniBLEClientError.bluetoothUnavailable,
+                 MiniBLEClientError.noSelection,
+                 MiniBLEClientError.deviceNotFound,
+                 MiniBLEClientError.disconnected,
+                 MiniBLEClientError.operationAlreadyInFlight:
+                title = "Bluetooth Error"
+                kind = .bluetooth
+            case MiniBLEClientError.invalidPayload,
+                 MiniBLEClientError.missingCharacteristic:
+                title = "Cooker Response Error"
+                kind = .response
+            case MiniBLEClientError.stateUnconfirmed:
+                title = "Cooker State Error"
+                kind = .state
+            default:
+                title = "Cooker Error"
+                kind = .response
+            }
+        }
+    }
+
     @Published private(set) var devices: [AnovaDiscoveredDevice] = []
     @Published var selectedDeviceID: UUID?
     @Published private(set) var connectedDevice: AnovaDiscoveredDevice?
@@ -97,7 +134,7 @@ final class AppModel: ObservableObject {
     @Published var timerMinutesText = "0"
     @Published var selectedUnit: MiniTemperatureUnit = .celsius
     @Published var aliasText = ""
-    @Published var lastError: String?
+    @Published var presentedError: PresentedError?
 
     private let diagnostics: MiniDiagnosticsStore
     private let coordinator: AnovaBLECoordinator
@@ -225,7 +262,7 @@ final class AppModel: ObservableObject {
         }
 
         isScanning = true
-        lastError = nil
+        presentedError = nil
 
         defer {
             isScanning = false
@@ -475,7 +512,7 @@ final class AppModel: ObservableObject {
         let stateSnapshot = captureOperationState()
         operationInFlight = true
         isBusy = true
-        lastError = nil
+        presentedError = nil
         let previousStatus = statusMessage
         statusMessage = busyMessage
 
@@ -623,7 +660,11 @@ final class AppModel: ObservableObject {
     }
 
     private func present(_ error: Error) {
-        lastError = error.localizedDescription
+        presentedError = PresentedError(error: error)
+    }
+
+    func dismissError() {
+        presentedError = nil
     }
 
     private func alias(for device: AnovaDiscoveredDevice) -> String? {
