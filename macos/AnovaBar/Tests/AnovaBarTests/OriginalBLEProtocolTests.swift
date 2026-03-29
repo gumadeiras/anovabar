@@ -81,4 +81,12 @@ struct OriginalBLEProtocolTests {
         #expect(OriginalCommandPolicy.matchesResponse("start", for: "status") == false)
         #expect(OriginalCommandPolicy.matchesResponse("stop time", for: "read unit") == false)
     }
+
+    @Test
+    func commandPolicyNormalizesSplitAndNoisyResponses() {
+        #expect(OriginalCommandPolicy.normalizedResponse("anova f56-a007b02ef3\r9\r", for: "get id card") == "anova f56-a007b02ef39")
+        #expect(OriginalCommandPolicy.normalizedResponse("stop time\rC\r", for: "read unit") == "C")
+        #expect(OriginalCommandPolicy.normalizedResponse("start\r43.0\r", for: "read temp") == "43.0")
+        #expect(OriginalCommandPolicy.normalizedResponse("start\r\nrunning\r", for: "status") == "running")
+    }
 }

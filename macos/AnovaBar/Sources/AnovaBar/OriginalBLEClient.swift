@@ -296,31 +296,33 @@ final class OriginalBLEClient: NSObject {
             return
         }
 
-        let latestResponse = String(data: latestChunk, encoding: .utf8)?
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines)) ?? ""
-        if OriginalCommandPolicy.expectsStructuredResponse(for: activeCommand),
-           !OriginalCommandPolicy.matchesResponse(latestResponse, for: activeCommand) {
-            recordBLE("notifyIgnored", details: [
-                "characteristic": "command",
-                "payload": latestResponse,
-                "activeCommand": activeCommand,
-                "family": "original",
-            ])
-            responseBuffer.removeAll()
-            return
-        }
-
         let ended = latestChunk.count < 20 || latestChunk.last == 0
         guard ended else {
             return
+        }
+
+        let rawResponse = String(data: responseBuffer, encoding: .utf8) ?? ""
+        let response: String
+        if OriginalCommandPolicy.expectsStructuredResponse(for: activeCommand) {
+            guard let normalizedResponse = OriginalCommandPolicy.normalizedResponse(rawResponse, for: activeCommand) else {
+                recordBLE("notifyIgnored", details: [
+                    "characteristic": "command",
+                    "payload": rawResponse.trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines)),
+                    "activeCommand": activeCommand,
+                    "family": "original",
+                ])
+                return
+            }
+            response = normalizedResponse
+        } else {
+            response = rawResponse
+                .trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines))
         }
 
         commandContinuation = nil
         commandTimeoutTask?.cancel()
         commandTimeoutTask = nil
         self.activeCommand = nil
-        let response = String(data: responseBuffer, encoding: .utf8)?
-            .trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines)) ?? ""
         responseBuffer.removeAll()
         continuation.resume(returning: response)
     }

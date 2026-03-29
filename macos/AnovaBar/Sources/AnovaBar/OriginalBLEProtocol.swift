@@ -49,31 +49,47 @@ enum OriginalCommandPolicy {
     }
 
     static func matchesResponse(_ response: String, for command: String) -> Bool {
-        let normalizedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-        let normalizedResponse = response.trimmingCharacters(in: CharacterSet(charactersIn: "\0").union(.whitespacesAndNewlines)).lowercased()
+        normalizedResponse(response, for: command) != nil
+    }
 
-        guard !normalizedResponse.isEmpty else {
-            return false
-        }
+    static func normalizedResponse(_ response: String, for command: String) -> String? {
+        let normalizedCommand = command.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let lines = response
+            .components(separatedBy: CharacterSet(charactersIn: "\0\r\n"))
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
 
         switch normalizedCommand {
         case "status":
-            return normalizedResponse.contains("running") || normalizedResponse.contains("stopped")
+            return lines.last(where: {
+                let lower = $0.lowercased()
+                return lower.contains("running") || lower.contains("stopped")
+            })
         case "read unit":
-            return normalizedResponse == "c" || normalizedResponse == "f"
+            return lines.last(where: {
+                let lower = $0.lowercased()
+                return lower == "c" || lower == "f"
+            })
         case "read temp", "read set temp":
-            return OriginalParser.temperature(from: normalizedResponse) != nil
+            return lines.last(where: { OriginalParser.temperature(from: $0) != nil })
         case "read timer":
-            return OriginalParser.timerMinutes(from: normalizedResponse) != nil
-                || normalizedResponse.contains("stopped")
-                || normalizedResponse.contains("running")
-                || normalizedResponse.contains("complete")
+            return lines.last(where: {
+                let lower = $0.lowercased()
+                return OriginalParser.timerMinutes(from: $0) != nil
+                    || lower.contains("stopped")
+                    || lower.contains("running")
+                    || lower.contains("complete")
+            })
         case "get id card":
-            return normalizedResponse.contains("anova")
+            let joined = lines.joined()
+            return joined.lowercased().contains("anova") ? joined : nil
         case "version":
-            return normalizedResponse.hasPrefix("ver") || normalizedResponse.hasPrefix("version")
+            return lines.last(where: {
+                let lower = $0.lowercased()
+                return lower.hasPrefix("ver") || lower.hasPrefix("version")
+            })
         default:
-            return true
+            return lines.last
         }
     }
 }
