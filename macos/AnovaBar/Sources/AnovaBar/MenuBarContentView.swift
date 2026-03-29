@@ -3,12 +3,12 @@ import SwiftUI
 
 struct MenuBarContentView: View {
     enum UI {
-        static let width: CGFloat = 392
+        static let width: CGFloat = 360
         static let panelSpacing: CGFloat = 10
         static let panelPadding: CGFloat = 12
         static let rowLabelWidth: CGFloat = 82
         static let controlFieldWidth: CGFloat = 168
-        static let settingsActionWidth: CGFloat = 72
+        static let settingsActionWidth: CGFloat = 84
         static let unitPickerWidth: CGFloat = 118
         static let headerIconButtonSize: CGFloat = 26
         static let headerIconGlyphSize: CGFloat = 13
@@ -427,20 +427,24 @@ struct MenuBarContentView: View {
             HStack(spacing: 8) {
                 TextField("Kitchen Mini", text: $model.aliasText)
                     .settingsFieldStyle()
-                    .layoutPriority(1)
+                    .frame(maxWidth: .infinity)
 
                 HStack(spacing: 6) {
-                    Button("Clear") {
+                    Button {
                         model.clearAlias()
+                    } label: {
+                        Text("Clear")
+                            .frame(width: UI.settingsActionWidth)
                     }
                     .actionButton()
-                    .frame(width: UI.settingsActionWidth)
 
-                    Button("Save") {
+                    Button {
                         model.saveAlias()
+                    } label: {
+                        Text("Save")
+                            .frame(width: UI.settingsActionWidth)
                     }
                     .prominentActionButton()
-                    .frame(width: UI.settingsActionWidth)
                 }
             }
         }
