@@ -8,6 +8,7 @@ LAUNCHER_PATH="$ROOT_DIR/dist/anovabar"
 EXECUTABLE_NAME="anovabar"
 ICON_SOURCE="$ROOT_DIR/assets/anovabar-icon.png"
 ICON_PATH="$BUNDLE_DIR/Contents/Resources/AnovaBar.icns"
+CODESIGN_IDENTITY="${ANOVABAR_CODESIGN_IDENTITY:--}"
 
 cargo build --manifest-path "$ROOT_DIR/Cargo.toml" --release
 
@@ -20,7 +21,11 @@ if [[ -f "$ICON_SOURCE" && -x "$ROOT_DIR/macos/build-app-icon.sh" ]]; then
     "$ROOT_DIR/macos/build-app-icon.sh" "$ICON_SOURCE" "$ICON_PATH"
 fi
 
-codesign --force --deep --sign - "$BUNDLE_DIR"
+if [[ "$CODESIGN_IDENTITY" == "-" ]]; then
+    codesign --force --deep --sign - "$BUNDLE_DIR"
+else
+    codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$BUNDLE_DIR"
+fi
 
 cat >"$LAUNCHER_PATH" <<'EOF'
 #!/usr/bin/env bash

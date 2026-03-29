@@ -9,6 +9,7 @@ BUNDLE_DIR="$ROOT_DIR/dist/AnovaBar.app"
 EXECUTABLE_NAME="AnovaBar"
 ICON_SOURCE="$ROOT_DIR/assets/anovabar-icon.png"
 ICON_PATH="$BUNDLE_DIR/Contents/Resources/AnovaBar.icns"
+CODESIGN_IDENTITY="${ANOVABAR_CODESIGN_IDENTITY:--}"
 
 swift build --package-path "$APP_DIR" -c release
 
@@ -21,6 +22,10 @@ if [[ -f "$ICON_SOURCE" && -x "$ROOT_DIR/macos/build-app-icon.sh" ]]; then
     "$ROOT_DIR/macos/build-app-icon.sh" "$ICON_SOURCE" "$ICON_PATH"
 fi
 
-codesign --force --deep --sign - "$BUNDLE_DIR"
+if [[ "$CODESIGN_IDENTITY" == "-" ]]; then
+    codesign --force --deep --sign - "$BUNDLE_DIR"
+else
+    codesign --force --deep --options runtime --timestamp --sign "$CODESIGN_IDENTITY" "$BUNDLE_DIR"
+fi
 
 echo "Built $BUNDLE_DIR"

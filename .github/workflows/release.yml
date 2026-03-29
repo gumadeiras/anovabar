@@ -1,0 +1,142 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-14
+    env:
+      GH_TOKEN: ${{ github.token }}
+      ANOVABAR_APPLE_ID: ${{ secrets.ANOVABAR_APPLE_ID }}
+      ANOVABAR_APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.ANOVABAR_APPLE_APP_SPECIFIC_PASSWORD }}
+      ANOVABAR_APPLE_TEAM_ID: ${{ secrets.ANOVABAR_APPLE_TEAM_ID }}
+      ANOVABAR_CODESIGN_IDENTITY: ${{ secrets.ANOVABAR_CODESIGN_IDENTITY }}
+      ANOVABAR_MACOS_CERTIFICATE_P12_BASE64: ${{ secrets.ANOVABAR_MACOS_CERTIFICATE_P12_BASE64 }}
+      ANOVABAR_MACOS_CERTIFICATE_PASSWORD: ${{ secrets.ANOVABAR_MACOS_CERTIFICATE_PASSWORD }}
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Derive release version
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          echo "ANOVABAR_RELEASE_VERSION=$VERSION" >> "$GITHUB_ENV"
+
+      - name: Validate release secrets
+        run: |
+          missing=()
+          for required_var in \
+            ANOVABAR_APPLE_ID \
+            ANOVABAR_APPLE_APP_SPECIFIC_PASSWORD \
+            ANOVABAR_APPLE_TEAM_ID \
+            ANOVABAR_CODESIGN_IDENTITY \
+            ANOVABAR_MACOS_CERTIFICATE_P12_BASE64 \
+            ANOVABAR_MACOS_CERTIFICATE_PASSWORD
+          do
+            if [[ -z "${!required_var:-}" ]]; then
+              missing+=("$required_var")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            printf 'Missing release secrets:\n' >&2
+            printf '  - %s\n' "${missing[@]}" >&2
+            exit 1
+          fi
+
+      - name: Check version files
+        run: ./scripts/sync-version.sh --check "$ANOVABAR_RELEASE_VERSION"
+
+      - name: Run Rust tests
+        run: cargo test
+
+      - name: Run Swift tests
+        run: swift test --package-path macos/AnovaBar
+
+      - name: Import Developer ID certificate
+        env:
+          KEYCHAIN_PASSWORD: ${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/anovabar-signing-cert.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/anovabar-signing.keychain-db"
+
+          echo "$ANOVABAR_MACOS_CERTIFICATE_P12_BASE64" | base64 -D > "$CERT_PATH"
+
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" \
+            -k "$KEYCHAIN_PATH" \
+            -P "$ANOVABAR_MACOS_CERTIFICATE_PASSWORD" \
+            -A \
+            -f pkcs12 \
+            -t cert
+          security set-key-partition-list \
+            -S apple-tool:,apple:,codesign: \
+            -s \
+            -k "$KEYCHAIN_PASSWORD" \
+            "$KEYCHAIN_PATH"
+
+          CURRENT_KEYCHAINS="$(security list-keychains -d user | tr -d '"')"
+          security list-keychains -d user -s "$KEYCHAIN_PATH" $CURRENT_KEYCHAINS
+          echo "ANOVABAR_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
+
+      - name: Build signed app bundles
+        run: |
+          ./macos/build-menubar-app.sh
+          ./macos/build-cli-app.sh
+
+      - name: Notarize macOS app bundles
+        run: ./scripts/notarize-macos-apps.sh
+
+      - name: Package release assets
+        run: ./scripts/package-release.sh --skip-build
+
+      - name: Write release notes
+        run: |
+          cat > dist/release/RELEASE_NOTES.md <<EOF
+          AnovaBar ${ANOVABAR_RELEASE_VERSION}
+
+          Assets:
+          - \`AnovaBar.app.zip\`: notarized menu bar app bundle
+          - \`anovabar-cli-macos.zip\`: CLI launcher plus \`AnovaBarCLI.app\`
+          - \`SHA256SUMS.txt\`: SHA-256 checksums for both archives
+
+          Install:
+          - Menu bar app: download \`AnovaBar.app.zip\`, unzip it, and move \`AnovaBar.app\` to \`/Applications\`
+          - CLI: download \`anovabar-cli-macos.zip\`, unzip it, keep \`anovabar\` next to \`AnovaBarCLI.app\`, and run \`./anovabar --help\`
+          EOF
+
+      - name: Publish draft GitHub release
+        run: |
+          if gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
+            gh release upload "$GITHUB_REF_NAME" \
+              dist/release/AnovaBar.app.zip \
+              dist/release/anovabar-cli-macos.zip \
+              dist/release/SHA256SUMS.txt \
+              --clobber
+            gh release edit "$GITHUB_REF_NAME" \
+              --draft \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file dist/release/RELEASE_NOTES.md
+          else
+            gh release create "$GITHUB_REF_NAME" \
+              dist/release/AnovaBar.app.zip \
+              dist/release/anovabar-cli-macos.zip \
+              dist/release/SHA256SUMS.txt \
+              --draft \
+              --title "$GITHUB_REF_NAME" \
+              --notes-file dist/release/RELEASE_NOTES.md
+          fi
+
+      - name: Delete temporary keychain
+        if: always()
+        run: |
+          if [[ -n "${ANOVABAR_KEYCHAIN_PATH:-}" && -f "${ANOVABAR_KEYCHAIN_PATH:-}" ]]; then
+            security delete-keychain "$ANOVABAR_KEYCHAIN_PATH"
+          fi
