@@ -104,7 +104,13 @@ struct MenuBarContentView: View {
 
                 Spacer()
 
-                Button(model.isScanning ? "Scanning…" : "Scan", action: asyncAction(model.scan))
+                Button(action: asyncAction(model.scan)) {
+                    ZStack {
+                        Text("Scanning…")
+                            .hidden()
+                        Text(model.isScanning ? "Scanning…" : "Scan")
+                    }
+                }
                     .prominentActionButton()
                     .disabled(model.isScanning || model.isBusy)
             }
