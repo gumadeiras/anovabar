@@ -66,12 +66,13 @@ export PATH="$HOME/.local/bin:$PATH"
 
 - `macos/AnovaBar`: native menu bar app
 - `src`: Rust library and CLI
-- `assets/anovabar.png`: logo used in this README
-- `assets/anovabar-icon.png`: cartoon mark used for the macOS app icon
-- `assets/anovabar.pdf`: source artwork
 
 ## Contributing
 
 Issues and PRs are welcome.
 
 If you have a cooker model that is not supported yet, contributions for new model support are especially useful.
+
+## License
+
+MIT. See `LICENSE`.
