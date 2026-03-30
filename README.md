@@ -1,6 +1,4 @@
-<p align="center">
-  <img src="./assets/anovabar_crop.jpg" alt="AnovaBar logo" width="320">
-</p>
+<img src="./assets/anovabar_crop.jpg" alt="AnovaBar logo" width="320">
 
 # AnovaBar
 
