@@ -1,0 +1,110 @@
+---
+title: "CLI"
+description: "Use the AnovaBar CLI to scan, inspect, and control supported cookers."
+---
+
+The CLI groups commands by cooker family:
+
+```bash
+anovabar <family> <command> [options]
+```
+
+Available families:
+
+- `nano`
+- `mini`
+- `original`
+
+Use `anovabar --help` or `anovabar <family> --help` to inspect the current command set.
+
+If you are working from the repo without installing the launcher, replace `anovabar` in the examples below with `./dist/anovabar` after running `./macos/build-cli-app.sh`.
+
+For BLE operations on macOS, prefer the bundled launcher from [Quickstart](/quickstart). Use `cargo run` for local development, tests, and help output.
+
+## Common options
+
+Most device commands accept the same connection flags:
+
+- `--address`: connect to a specific BLE address instead of the first matching device
+- `--scan-timeout`: scan duration in seconds, default `5`
+- `--command-timeout`: command timeout in seconds, default `10`
+
+## Nano commands
+
+The Nano command group supports discovery, status reads, and direct control:
+
+- `scan`
+- `status`
+- `current-temp`
+- `target-temp`
+- `timer`
+- `unit`
+- `firmware-info`
+- `device-info`
+- `start`
+- `stop`
+- `set-unit`
+- `set-temp`
+- `set-timer`
+
+Example:
+
+```bash
+./dist/anovabar nano set-temp 55
+```
+
+`nano set-temp` expects a temperature value. `nano set-timer` expects minutes.
+
+## Mini commands
+
+The Mini or Gen 3 command group exposes both state reads and cook control:
+
+- `scan`
+- `system-info`
+- `state`
+- `current-temp`
+- `timer`
+- `full-state`
+- `set-clock`
+- `set-unit`
+- `set-temp`
+- `start`
+- `stop`
+
+Example:
+
+```bash
+./dist/anovabar mini start 54.5 --timer-seconds 3600
+```
+
+`mini start` takes a required setpoint and an optional `--timer-seconds` value. It also exposes `--cookable-id` and `--cookable-type`, both of which default to values used by the menu bar workflow.
+
+## Original cooker commands
+
+The original Precision Cooker command group includes model and firmware reads in addition to cook control:
+
+- `scan`
+- `status`
+- `unit`
+- `current-temp`
+- `target-temp`
+- `timer`
+- `cooker-id`
+- `model`
+- `firmware-version`
+- `clear-alarm`
+- `set-unit`
+- `set-temp`
+- `set-timer`
+- `start-timer`
+- `stop-timer`
+- `start`
+- `stop`
+
+Example:
+
+```bash
+./dist/anovabar original start 60 --timer-minutes 90
+```
+
+`original start` takes a required setpoint and an optional `--timer-minutes` value.

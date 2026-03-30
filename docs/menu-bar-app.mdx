@@ -1,0 +1,50 @@
+---
+title: "Menu bar app"
+description: "Build and run the native macOS menu bar app for supported Anova cookers."
+---
+
+`AnovaBar` is a native macOS menu bar app built from `macos/AnovaBar`.
+
+## Supported cookers
+
+- Nano
+- Mini / Gen 3
+- Original Precision Cooker
+
+Nano support is present but still marked as untested on real hardware.
+
+## Scope
+
+The app can:
+
+- Scan for nearby supported cookers
+- Connect and read live state
+- Sync the clock when the device supports it
+- Set temperature and temperature unit
+- Start and stop cooks
+
+## Build
+
+From the repo root:
+
+```bash
+./macos/build-menubar-app.sh
+```
+
+That writes:
+
+```text
+dist/AnovaBar.app
+```
+
+## Run
+
+```bash
+open dist/AnovaBar.app
+```
+
+If macOS prompts for Bluetooth access or pairing, allow it. Supported cookers may disconnect if pairing is rejected.
+
+## Why the app is separate
+
+The menu bar app is built separately from the Rust CLI so Bluetooth privacy permissions live in the app process that talks to CoreBluetooth.

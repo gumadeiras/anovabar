@@ -1,0 +1,88 @@
+---
+title: "Quickstart"
+description: "Build the menu bar app, run the CLI, and install the packaged launcher on macOS."
+---
+
+AnovaBar is a macOS-focused project. The menu bar app target declares macOS 13 or newer, and BLE commands are designed around macOS privacy handling.
+
+## Prerequisites
+
+- macOS 13 or newer
+- A Rust toolchain for the CLI
+- Swift 6 and Xcode command line tools for the menu bar app
+
+## Build and open the menu bar app
+
+From the repo root:
+
+```bash
+./macos/build-menubar-app.sh
+open dist/AnovaBar.app
+```
+
+If macOS asks for Bluetooth access or pairing, allow it.
+
+## Run the CLI
+
+Use the CLI in one of three ways, depending on what you need:
+
+- `cargo run -- ...` for local development and non-BLE commands such as `--help`
+- `./dist/anovabar ...` after `./macos/build-cli-app.sh` for local BLE testing
+- `anovabar ...` after `./macos/install-cli.sh` for a stable launcher on your `PATH`
+
+For example, Cargo works for help output:
+
+```bash
+cargo run -- --help
+```
+
+For BLE commands on macOS, build and use the launcher bundle instead:
+
+```bash
+./macos/build-cli-app.sh
+./dist/anovabar mini scan --scan-timeout 5
+```
+
+The launcher opens `AnovaBarCLI.app` through LaunchServices so macOS applies the bundle's Bluetooth permission metadata. A bare CLI process does not carry that metadata.
+
+## Install the CLI launcher
+
+To install the bundled CLI and launcher under your home directory:
+
+```bash
+./macos/install-cli.sh
+```
+
+This installs:
+
+- `~/.local/share/anovabar/AnovaBarCLI.app`
+- `~/.local/bin/anovabar`
+
+If `~/.local/bin` is not on your `PATH`, add it:
+
+```bash
+export PATH="$HOME/.local/bin:$PATH"
+```
+
+Then confirm the launcher is available:
+
+```bash
+anovabar --help
+```
+
+You can now run BLE commands without using the local `dist/` path:
+
+```bash
+anovabar mini scan --scan-timeout 5
+```
+
+## Run tests
+
+Before you change behavior, run the project test suites:
+
+```bash
+cargo test
+swift test --package-path macos/AnovaBar
+```
+
+For release packaging and tagged builds, continue to [Releasing](/releasing).

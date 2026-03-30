@@ -1,0 +1,85 @@
+---
+title: "Releasing"
+description: "Sync versions, run release checks, package artifacts, and publish tagged builds."
+---
+
+Use the release scripts when you need a tagged macOS build.
+
+## Sync version metadata
+
+Version fields are shared across the Rust crate and both macOS app bundles:
+
+```bash
+./scripts/sync-version.sh 0.2.0
+```
+
+If you want a separate macOS build number:
+
+```bash
+./scripts/sync-version.sh 0.2.0 42
+```
+
+The script updates:
+
+- `Cargo.toml`
+- `Cargo.lock`
+- `macos/AnovaBar/Resources/Info.plist`
+- `macos/anovabar-cli-Info.plist`
+
+## Run release checks
+
+Verify the repo before tagging:
+
+```bash
+cargo test
+swift test --package-path macos/AnovaBar
+```
+
+You can also use the release wrapper:
+
+```bash
+./scripts/release check 0.2.0
+```
+
+## Build local release artifacts
+
+Packaging is macOS-only.
+
+```bash
+./scripts/package-release.sh
+```
+
+That writes:
+
+- `dist/release/AnovaBar.app.zip`
+- `dist/release/anovabar-cli-macos.zip`
+- `dist/release/SHA256SUMS.txt`
+
+## Publish a tagged release
+
+After the version bump commit is pushed:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The GitHub workflow at `.github/workflows/release.yml` runs on tags that match `v*`. It checks version files, runs the Rust and Swift test suites, builds both app bundles, packages the release assets, and creates or updates a draft GitHub Release.
+
+## Use the release wrapper
+
+The `./scripts/release` wrapper matches the automation in the repo:
+
+- `check`: verify synced versions and run the release test gates
+- `bump`: update version files only
+- `package`: run checks and build local release artifacts
+- `publish`: wait for the GitHub release workflow for `v<version>` and optionally publish it
+- `run`: bump, test, package, commit, tag, push, wait for the workflow, and publish
+
+`publish` and `run` require the GitHub CLI (`gh`). `run` also requires a clean working tree.
+
+## Signing and notarization
+
+If Apple signing secrets are configured, the workflow signs the app bundles with Developer ID and notarizes them.
+
+If those secrets are not configured, the workflow still builds ad hoc signed artifacts, but they are not notarized and macOS may warn or block them on first launch.

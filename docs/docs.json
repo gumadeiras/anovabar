@@ -1,0 +1,29 @@
+{
+  "$schema": "https://mintlify.com/docs.json",
+  "theme": "mint",
+  "name": "AnovaBar",
+  "description": "Bluetooth control for supported Anova cookers from a macOS menu bar app or a Rust CLI.",
+  "favicon": "/images/anovabar-icon.png",
+  "colors": {
+    "primary": "#2C6E78"
+  },
+  "navigation": {
+    "groups": [
+      {
+        "group": "Getting started",
+        "pages": [
+          "index",
+          "quickstart",
+          "cli",
+          "menu-bar-app"
+        ]
+      },
+      {
+        "group": "Maintain",
+        "pages": [
+          "releasing"
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,40 @@
+---
+title: "AnovaBar"
+description: "Build and run the AnovaBar menu bar app and CLI for supported Anova cookers."
+---
+
+![AnovaBar logo](/images/anovabar.jpg)
+
+AnovaBar controls supported Anova cookers over Bluetooth Low Energy. This repo ships two user-facing tools:
+
+- A native macOS menu bar app
+- A Rust CLI with a macOS app-bundle launcher for BLE commands
+
+## What you can do
+
+- Scan for nearby supported cookers
+- Connect and read live state
+- Set target temperature, timer, and temperature unit
+- Start and stop cooks
+
+## Supported cookers
+
+- Nano
+- Mini / Gen 3
+- Original Precision Cooker
+
+Nano support is present in the codebase but still marked as untested in hardware.
+
+## Repo layout
+
+- `src`: Rust library and CLI
+- `macos/AnovaBar`: Swift menu bar app
+- `scripts`: release and packaging helpers
+- `dist`: local app bundles and packaged artifacts
+
+## Start here
+
+- Use [Quickstart](/quickstart) to build and run the app or CLI.
+- Use [CLI](/cli) for command structure and examples.
+- Use [Menu bar app](/menu-bar-app) for the macOS app workflow.
+- Use [Releasing](/releasing) if you maintain tagged builds.
