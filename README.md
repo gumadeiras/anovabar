@@ -26,6 +26,16 @@ Sous vide, but make it tiny and fast.
 
 ## Quick Start
 
+Install the CLI with Homebrew:
+
+```bash
+brew tap gumadeiras/tap
+brew install anovabar
+anovabar --help
+```
+
+The Homebrew formula installs the CLI bundle only. The menu bar app is not included there.
+
 Build the macOS app:
 
 ```bash
