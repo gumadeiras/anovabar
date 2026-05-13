@@ -11,15 +11,15 @@ Usage:
   ./scripts/release check <version> [build-number]
   ./scripts/release bump <version> [build-number]
   ./scripts/release package <version> [build-number]
-  ./scripts/release publish <version> [--keep-draft]
-  ./scripts/release run <version> [build-number] [--keep-draft]
+  ./scripts/release publish <version>
+  ./scripts/release run <version> [build-number]
 
 Commands:
   check     Validate synced versions and run release test gates.
   bump      Update version files only.
   package   Build and package release artifacts locally.
-  publish   Wait for the GitHub release workflow for v<version> and optionally publish it.
-  run       Bump, test, package, commit, tag, push, wait for the workflow, and publish.
+  publish   Wait for the GitHub release workflow for v<version> and verify it.
+  run       Bump, test, package, commit, tag, push, and wait for the workflow.
 EOF
 }
 
@@ -118,7 +118,6 @@ wait_for_release_run() {
 
 publish_release() {
     local version="$1"
-    local keep_draft="$2"
     local tag="v$version"
 
     require_tool gh
@@ -129,20 +128,11 @@ publish_release() {
 
     wait_for_release_run "$tag"
 
-    if (( keep_draft )); then
-        (
-            cd "$ROOT_DIR"
-            gh release view "$tag" >/dev/null
-        )
-        echo "Release $tag workflow finished; release state was left unchanged."
-        return 0
-    fi
-
     (
         cd "$ROOT_DIR"
         gh release edit "$tag" --draft=false >/dev/null
     )
-    echo "Published release $tag."
+    echo "Release $tag workflow finished and is published."
 }
 
 MODE="${1:-}"
@@ -154,7 +144,6 @@ shift
 
 VERSION=""
 BUILD_NUMBER=""
-KEEP_DRAFT=0
 
 case "$MODE" in
     check | bump | package)
@@ -166,35 +155,21 @@ case "$MODE" in
         BUILD_NUMBER="${2:-}"
         ;;
     publish)
+        [[ $# -eq 1 ]] || {
+            usage >&2
+            exit 2
+        }
+        VERSION="$1"
+        ;;
+    run)
         [[ $# -ge 1 && $# -le 2 ]] || {
             usage >&2
             exit 2
         }
         VERSION="$1"
         shift
-        if [[ "${1:-}" == "--keep-draft" ]]; then
-            KEEP_DRAFT=1
-        elif [[ $# -gt 0 ]]; then
-            usage >&2
-            exit 2
-        fi
-        ;;
-    run)
-        [[ $# -ge 1 && $# -le 3 ]] || {
-            usage >&2
-            exit 2
-        }
-        VERSION="$1"
-        shift
-        if [[ "${1:-}" == "--keep-draft" ]]; then
-            KEEP_DRAFT=1
-            shift
-        elif [[ -n "${1:-}" ]]; then
+        if [[ -n "${1:-}" ]]; then
             BUILD_NUMBER="$1"
-            shift
-        fi
-        if [[ "${1:-}" == "--keep-draft" ]]; then
-            KEEP_DRAFT=1
             shift
         fi
         [[ $# -eq 0 ]] || {
@@ -221,7 +196,7 @@ case "$MODE" in
         package_release
         ;;
     publish)
-        publish_release "$VERSION" "$KEEP_DRAFT"
+        publish_release "$VERSION"
         ;;
     run)
         require_clean_tree
@@ -230,6 +205,6 @@ case "$MODE" in
         run_checks "$VERSION" "$BUILD_NUMBER"
         package_release
         commit_tag_and_push "$VERSION"
-        publish_release "$VERSION" "$KEEP_DRAFT"
+        publish_release "$VERSION"
         ;;
 esac

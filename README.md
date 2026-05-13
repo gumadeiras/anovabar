@@ -80,7 +80,7 @@ export PATH="$HOME/.local/bin:$PATH"
 
 - `./scripts/committer "message" path...`: stage only the listed paths and create a commit
 - `./scripts/release check 0.1.4`: verify synced release versions and run the release test gates
-- `./scripts/release run 0.1.4`: bump versions, run tests, package artifacts, tag, push, and publish the GitHub release
+- `./scripts/release run 0.1.4`: bump versions, run tests, package artifacts, tag, push, wait for the release workflow, and update Homebrew
 
 ## Contributing
 
