@@ -4,6 +4,11 @@
 
 - Commit with `scripts/committer "<subject>" -- <path>...`; it stages only listed paths. Use `--body` or `--body-file` for commit bodies.
 
+## Release
+
+- Use `./scripts/release check <version> [build-number]` for local preflight.
+- Use `./scripts/release run <version> [build-number]` only after explicit release approval.
+- Tag pushes run the release workflow, publish GitHub assets, and update `gumadeiras/homebrew-tap`.
 
 ## Changelog
 
@@ -13,4 +18,3 @@
 - Omit empty sections.
 - Write user-facing entries instead of repository chore notes.
 - Do not include pure tests, internal refactors, CI-only changes, or docs-only changes unless they affect user behavior, API, installation, or usage.
-

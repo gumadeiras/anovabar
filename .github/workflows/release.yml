@@ -1,4 +1,4 @@
-name: Release
+name: release
 
 on:
   push:
@@ -22,7 +22,7 @@ jobs:
       TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
     steps:
       - name: Check out repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Derive release version
         run: |
@@ -173,7 +173,7 @@ jobs:
           fi
 
       - name: Check out Homebrew tap
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: gumadeiras/homebrew-tap
           token: ${{ env.TAP_TOKEN }}

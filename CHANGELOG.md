@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Changes
+
+- Updated release automation to the current checkout action and documented the local release wrapper.
+
 ## 0.1.4 - 2026-03-30
 
 ### Changes
