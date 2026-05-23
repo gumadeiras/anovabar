@@ -101,8 +101,11 @@ jobs:
             -k "$KEYCHAIN_PASSWORD" \
             "$KEYCHAIN_PATH"
 
-          CURRENT_KEYCHAINS="$(security list-keychains -d user | tr -d '"')"
-          security list-keychains -d user -s "$KEYCHAIN_PATH" $CURRENT_KEYCHAINS
+          CURRENT_KEYCHAINS=()
+          while IFS= read -r keychain; do
+            [[ -n "$keychain" ]] && CURRENT_KEYCHAINS+=("$keychain")
+          done < <(security list-keychains -d user | tr -d '"')
+          security list-keychains -d user -s "$KEYCHAIN_PATH" "${CURRENT_KEYCHAINS[@]}"
           echo "ANOVABAR_KEYCHAIN_PATH=$KEYCHAIN_PATH" >> "$GITHUB_ENV"
 
       - name: Build app bundles
@@ -125,7 +128,8 @@ jobs:
             "Assets:" \
             "- \`AnovaBar.app.zip\`: menu bar app bundle" \
             "- \`anovabar-cli-macos.zip\`: CLI launcher plus \`AnovaBarCLI.app\`" \
-            "- \`SHA256SUMS.txt\`: SHA-256 checksums for both archives" \
+            "- \`anovabar-homebrew-source-${ANOVABAR_RELEASE_VERSION}.tar.gz\`: lean source archive for Homebrew CLI builds" \
+            "- \`SHA256SUMS.txt\`: SHA-256 checksums for all archives" \
             "" \
             "Install:" \
             "- Menu bar app: download \`AnovaBar.app.zip\`, unzip it, and move \`AnovaBar.app\` to \`/Applications\`" \
@@ -157,6 +161,7 @@ jobs:
             gh release upload "$GITHUB_REF_NAME" \
               dist/release/AnovaBar.app.zip \
               dist/release/anovabar-cli-macos.zip \
+              "dist/release/anovabar-homebrew-source-${ANOVABAR_RELEASE_VERSION}.tar.gz" \
               dist/release/SHA256SUMS.txt \
               --clobber
             gh release edit "$GITHUB_REF_NAME" \
@@ -167,6 +172,7 @@ jobs:
             gh release create "$GITHUB_REF_NAME" \
               dist/release/AnovaBar.app.zip \
               dist/release/anovabar-cli-macos.zip \
+              "dist/release/anovabar-homebrew-source-${ANOVABAR_RELEASE_VERSION}.tar.gz" \
               dist/release/SHA256SUMS.txt \
               --title "$GITHUB_REF_NAME" \
               --notes-file dist/release/RELEASE_NOTES.md
@@ -181,11 +187,13 @@ jobs:
 
       - name: Update Homebrew formula
         run: |
-          source_url="https://github.com/gumadeiras/anovabar/archive/refs/tags/${GITHUB_REF_NAME}.tar.gz"
-          tmp="$(mktemp)"
-          curl -fsSL "$source_url" -o "$tmp"
-          sha256="$(shasum -a 256 "$tmp" | awk '{print $1}')"
-          rm -f "$tmp"
+          source_asset="anovabar-homebrew-source-${ANOVABAR_RELEASE_VERSION}.tar.gz"
+          source_url="https://github.com/gumadeiras/anovabar/releases/download/${GITHUB_REF_NAME}/${source_asset}"
+          sha256="$(awk -v file="$source_asset" '$2 == file { print $1 }' dist/release/SHA256SUMS.txt)"
+          if [ -z "$sha256" ]; then
+            echo "missing checksum for $source_asset" >&2
+            exit 1
+          fi
 
           python homebrew-tap/scripts/update_formula.py \
             --formula homebrew-tap/Formula/anovabar.rb \

@@ -82,9 +82,15 @@ ditto -c -k --sequesterRsrc --keepParent \
     "$CLI_STAGE_DIR" \
     "$OUTPUT_DIR/anovabar-cli-macos.zip"
 
+"$ROOT_DIR/scripts/package-homebrew-source.sh" "$OUTPUT_DIR"
+
 (
     cd "$OUTPUT_DIR"
-    shasum -a 256 AnovaBar.app.zip anovabar-cli-macos.zip > SHA256SUMS.txt
+    shasum -a 256 \
+        AnovaBar.app.zip \
+        anovabar-cli-macos.zip \
+        anovabar-homebrew-source-*.tar.gz \
+        > SHA256SUMS.txt
 )
 
 echo "Wrote release assets to $OUTPUT_DIR"

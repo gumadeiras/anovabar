@@ -4,6 +4,7 @@
 
 ### Changes
 
+- Added a lean Homebrew source archive that preserves the CLI app icon while excluding menu bar app, docs, and branding assets from Homebrew downloads.
 - Updated release automation to the current checkout action and documented the local release wrapper.
 
 ## 0.1.4 - 2026-03-30
