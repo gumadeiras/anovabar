@@ -36,9 +36,16 @@ That writes:
 
 - `dist/release/AnovaBar.app.zip`
 - `dist/release/anovabar-cli-macos.zip`
+- `dist/release/anovabar-homebrew-source-<version>.tar.gz`
 - `dist/release/SHA256SUMS.txt`
 
-Public GitHub releases are automated by `.github/workflows/release.yml` and trigger on tags like `v0.2.0`. The workflow checks that the tag matches the version files, runs the Rust and Swift tests, packages the release assets, and creates or updates a draft GitHub Release.
+The Homebrew source archive is intentionally lean. It contains only the Rust
+CLI sources, the CLI bundle metadata, `macos/build-cli-app.sh`,
+`macos/build-app-icon.sh`, and `assets/anovabar-icon.png` so Homebrew builds
+keep the app icon without downloading the menu bar app, docs, or branding
+assets.
+
+Public GitHub releases are automated by `.github/workflows/release.yml` and trigger on tags like `v0.2.0`. The workflow checks that the tag matches the version files, runs the Rust and Swift tests, packages the release assets, creates or updates a GitHub Release, and points the Homebrew formula at the lean source archive.
 
 If Apple signing secrets are configured, the workflow also signs the app bundles with Developer ID and notarizes them before publishing.
 
