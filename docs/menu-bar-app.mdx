@@ -17,7 +17,7 @@ Nano support is present but still marked as untested on real hardware.
 
 The app can:
 
-- Scan for nearby supported cookers
+- Scan for nearby supported cookers when the app starts
 - Connect and read live state
 - Sync the clock when the device supports it
 - Set temperature and temperature unit
@@ -44,6 +44,8 @@ open dist/AnovaBar.app
 ```
 
 If macOS prompts for Bluetooth access or pairing, allow it. Supported cookers may disconnect if pairing is rejected.
+
+If the first scan finds no cooker, use **Scan** to try again. The button changes to **Rescan** only after a manual scan finds no cooker.
 
 ## Why the app is separate
 

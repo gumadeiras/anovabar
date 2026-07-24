@@ -39,9 +39,11 @@ final class NanoBLEClient: NSObject {
         central.scanForPeripherals(withServices: [NanoBLEUUIDs.service], options: [
             CBCentralManagerScanOptionAllowDuplicatesKey: false,
         ])
+        defer {
+            central.stopScan()
+        }
 
         try await Task.sleep(for: .seconds(seconds))
-        central.stopScan()
 
         recordBLE("scanComplete", details: ["discovered": String(discoveredPeripherals.count), "family": "nano"])
 

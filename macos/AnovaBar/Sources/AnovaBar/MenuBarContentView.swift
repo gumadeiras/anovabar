@@ -32,9 +32,6 @@ struct MenuBarContentView: View {
             }
         }
             .frame(width: UI.width)
-            .task {
-                await model.loadIfNeeded()
-            }
             .onChange(of: model.connectedDevice?.id) { newValue in
                 if newValue == nil {
                     showingDeviceDetails = false
@@ -111,7 +108,7 @@ struct MenuBarContentView: View {
                     ZStack {
                         Text("Scanning…")
                             .hidden()
-                        Text(model.isScanning ? "Scanning…" : (model.hasCompletedScan ? "Rescan" : "Scan"))
+                        Text(model.scanButtonTitle)
                     }
                 }
                     .prominentActionButton()
@@ -119,7 +116,7 @@ struct MenuBarContentView: View {
             }
 
             if model.devices.isEmpty {
-                Text("Bluetooth permission or pairing may appear on first scan.")
+                Text("Bluetooth permission can appear when AnovaBar starts.")
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

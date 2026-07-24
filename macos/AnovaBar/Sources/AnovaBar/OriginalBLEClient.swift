@@ -40,9 +40,11 @@ final class OriginalBLEClient: NSObject {
         central.scanForPeripherals(withServices: nil, options: [
             CBCentralManagerScanOptionAllowDuplicatesKey: false,
         ])
+        defer {
+            central.stopScan()
+        }
 
         try await Task.sleep(for: .seconds(seconds))
-        central.stopScan()
 
         recordBLE("scanComplete", details: ["discovered": String(discoveredPeripherals.count), "family": "original"])
 

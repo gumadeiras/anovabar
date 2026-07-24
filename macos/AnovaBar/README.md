@@ -5,7 +5,7 @@
 ## Scope
 
 - Native `MenuBarExtra` app for macOS
-- Scans for nearby supported Anova cookers
+- Scans for nearby supported Anova cookers when the app starts
 - Connects, syncs the clock when supported, and reads live state
 - Lets you set temperature, change units, start, and stop a cook
 - Built separately from the Rust CLI so Bluetooth privacy permissions live in the app process that talks to CoreBluetooth

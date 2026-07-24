@@ -1,5 +1,30 @@
 import Foundation
 
+enum ScanTrigger {
+    case automatic
+    case manual
+}
+
+struct ScanButtonState {
+    private(set) var manualScanFoundNoDevices = false
+
+    mutating func recordCompletedScan(trigger: ScanTrigger, foundDevices: Bool) {
+        guard trigger == .manual else {
+            return
+        }
+
+        manualScanFoundNoDevices = !foundDevices
+    }
+
+    func title(isScanning: Bool) -> String {
+        if isScanning {
+            return "Scanning…"
+        }
+
+        return manualScanFoundNoDevices ? "Rescan" : "Scan"
+    }
+}
+
 @MainActor
 final class AppModel: ObservableObject {
     private static let aliasStorageKey = "deviceAliases"
@@ -129,7 +154,7 @@ final class AppModel: ObservableObject {
     @Published private(set) var statusMessage = "Disconnected."
     @Published private(set) var isBusy = false
     @Published private(set) var isScanning = false
-    @Published private(set) var hasCompletedScan = false
+    @Published private var scanButtonState = ScanButtonState()
     @Published private(set) var bleTraceText = MiniDiagnosticsStore.emptyText
     @Published var isDebugEnabled: Bool
     @Published var menuBarShowsCurrentTemp: Bool
@@ -142,8 +167,9 @@ final class AppModel: ObservableObject {
 
     private let diagnostics: MiniDiagnosticsStore
     private let coordinator: AnovaBLECoordinator
+    private let scanForDevices: @MainActor (TimeInterval) async throws -> [AnovaDiscoveredDevice]
     private let defaults = UserDefaults.standard
-    private var didLoad = false
+    private var didScanOnLaunch = false
     private var pollTask: Task<Void, Never>?
     private var clockTask: Task<Void, Never>?
     private var autoStopTask: Task<Void, Never>?
@@ -154,9 +180,17 @@ final class AppModel: ObservableObject {
     private var session: (any AnovaCookerSession)?
     @Published private var timerNow = Date()
 
-    init() {
-        self.diagnostics = MiniDiagnosticsStore()
-        self.coordinator = AnovaBLECoordinator(diagnostics: diagnostics)
+    init(
+        scanForDevices: (@MainActor (TimeInterval) async throws -> [AnovaDiscoveredDevice])? = nil
+    ) {
+        let diagnostics = MiniDiagnosticsStore()
+        let coordinator = AnovaBLECoordinator(diagnostics: diagnostics)
+
+        self.diagnostics = diagnostics
+        self.coordinator = coordinator
+        self.scanForDevices = scanForDevices ?? { timeout in
+            try await coordinator.scan(timeout: timeout)
+        }
         self.deviceAliases = defaults.dictionary(forKey: Self.aliasStorageKey) as? [String: String] ?? [:]
         self.isDebugEnabled = defaults.object(forKey: Self.debugEnabledStorageKey) as? Bool ?? false
         self.menuBarShowsCurrentTemp = defaults.object(forKey: Self.menuBarShowsCurrentTempStorageKey) as? Bool ?? false
@@ -175,6 +209,10 @@ final class AppModel: ObservableObject {
 
     var menuBarIconName: String {
         connectedDevice == nil ? "thermometer.medium.slash" : "thermometer.medium"
+    }
+
+    var scanButtonTitle: String {
+        scanButtonState.title(isScanning: isScanning)
     }
 
     var menuBarTitle: String {
@@ -344,17 +382,21 @@ final class AppModel: ObservableObject {
         recordApp("menuBarShowsTimerChanged enabled=\(isEnabled)")
     }
 
-    func loadIfNeeded() async {
-        guard !didLoad else {
+    func scanOnLaunchIfNeeded() async {
+        guard !didScanOnLaunch else {
             return
         }
 
-        didLoad = true
-        syncAliasDraft()
+        didScanOnLaunch = true
+        await scan(trigger: .automatic)
     }
 
     func scan() async {
-        recordApp("scanRequested")
+        await scan(trigger: .manual)
+    }
+
+    private func scan(trigger: ScanTrigger) async {
+        recordApp(trigger == .automatic ? "automaticScanRequested" : "manualScanRequested")
         guard !isScanning else {
             return
         }
@@ -367,9 +409,9 @@ final class AppModel: ObservableObject {
         }
 
         do {
-            let found = try await coordinator.scan(timeout: 5)
+            let found = try await scanForDevices(5)
             devices = found
-            hasCompletedScan = true
+            scanButtonState.recordCompletedScan(trigger: trigger, foundDevices: !found.isEmpty)
 
             if selectedDeviceID == nil || !found.contains(where: { $0.id == selectedDeviceID }) {
                 selectedDeviceID = found.first?.id
@@ -382,6 +424,8 @@ final class AppModel: ObservableObject {
             } else {
                 statusMessage = "Found \(found.count) nearby cooker(s)."
             }
+        } catch is CancellationError {
+            recordApp("scanCancelled")
         } catch {
             present(error)
         }

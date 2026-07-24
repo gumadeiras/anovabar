@@ -29,6 +29,9 @@ struct AnovaBarApp: App {
                         .monospacedDigit()
                 }
             }
+            .task {
+                await model.scanOnLaunchIfNeeded()
+            }
         }
         .menuBarExtraStyle(.window)
     }
