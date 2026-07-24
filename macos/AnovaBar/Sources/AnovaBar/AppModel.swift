@@ -33,80 +33,23 @@ final class AppModel: ObservableObject {
     private static let menuBarShowsCurrentTempStorageKey = "menuBarShowsCurrentTemp"
     private static let menuBarShowsTimerStorageKey = "menuBarShowsTimer"
 
-    private struct PersistedCookState: Codable {
+    private struct PersistedCookState: Codable, Equatable {
         var targetTemperature: Double?
         var timerState: PersistedTimerState?
         var lastCompletedAt: Date?
     }
 
-    private enum PersistedTimerState: Codable {
+    private enum PersistedTimerState: Codable, Equatable {
         case staged(seconds: Int)
         case paused(seconds: Int)
         case stopped
     }
 
-    private enum ExpectedDeviceState {
-        case temperatureUnit(MiniTemperatureUnit)
-        case targetTemperature(Double)
-        case running(
-            targetTemperature: Double,
-            timerSeconds: Int,
-            temperatureUnit: MiniTemperatureUnit? = nil,
-            requireTimerRunningSignal: Bool = false
-        )
-        case stopped
-
-        func matches(_ snapshot: CookerSnapshot) -> Bool {
-            switch self {
-            case .temperatureUnit(let unit):
-                return snapshot.temperatureUnit == unit
-
-            case .targetTemperature(let targetTemperature):
-                guard let snapshotTarget = snapshot.targetTemperatureValue else {
-                    return false
-                }
-
-                return abs(snapshotTarget - targetTemperature) <= 0.2
-
-            case .running(let targetTemperature, let timerSeconds, let temperatureUnit, let requireTimerRunningSignal):
-                return snapshot.matchesRunningCook(
-                    targetTemperature: targetTemperature,
-                    timerSeconds: timerSeconds,
-                    temperatureUnit: temperatureUnit,
-                    requireTimerRunningSignal: requireTimerRunningSignal
-                )
-
-            case .stopped:
-                return !snapshot.isCooking
-            }
-        }
-
-        var summary: String {
-            switch self {
-            case .temperatureUnit(let unit):
-                return "temperature unit \(unit.rawValue)"
-            case .targetTemperature(let targetTemperature):
-                return "target temperature \(MiniFormat.temperature(targetTemperature))"
-            case .running(let targetTemperature, let timerSeconds, let temperatureUnit, let requireTimerRunningSignal):
-                let timerText = timerSeconds == 0 ? "infinite timer" : "\(timerSeconds)s timer"
-                let timerSignalText = requireTimerRunningSignal ? " with live timer signal" : ""
-                if let temperatureUnit {
-                    return "running cook at \(MiniFormat.temperature(targetTemperature))\(temperatureUnit.symbol) with \(timerText)\(timerSignalText)"
-                }
-                return "running cook at \(MiniFormat.temperature(targetTemperature)) with \(timerText)\(timerSignalText)"
-            case .stopped:
-                return "stopped cook"
-            }
-        }
-    }
-
-    private struct OperationStateSnapshot {
-        var connectedDevice: AnovaDiscoveredDevice?
-        var observedState: MiniObservedDeviceState
-        var targetTemperatureText: String
-        var timerMinutesText: String
-        var selectedUnit: MiniTemperatureUnit
-        var sessionState: MiniCookSessionState
+    private struct PendingConfirmation {
+        let expectation: CookerStateExpectation
+        let successMessage: String
+        let expiresAt: Date
+        let preservedTimerSeconds: Int?
     }
 
     struct PresentedError: Identifiable {
@@ -120,6 +63,12 @@ final class AppModel: ObservableObject {
         let title: String
         let message: String
         let kind: Kind
+
+        init(title: String, message: String, kind: Kind) {
+            self.title = title
+            self.message = message
+            self.kind = kind
+        }
 
         init(error: Error) {
             message = error.localizedDescription
@@ -136,13 +85,22 @@ final class AppModel: ObservableObject {
                  MiniBLEClientError.missingCharacteristic:
                 title = "Cooker Response Error"
                 kind = .response
-            case MiniBLEClientError.stateUnconfirmed:
+            case MiniBLEClientError.lowWater,
+                 MiniBLEClientError.stateUnconfirmed:
                 title = "Cooker State Error"
                 kind = .state
             default:
                 title = "Cooker Error"
                 kind = .response
             }
+        }
+
+        static func connectionLost(reason: String) -> PresentedError {
+            PresentedError(
+                title: "Connection Lost",
+                message: "The cooker disconnected: \(reason) Select Connect to reconnect.",
+                kind: .bluetooth
+            )
         }
     }
 
@@ -168,31 +126,38 @@ final class AppModel: ObservableObject {
     private let diagnostics: MiniDiagnosticsStore
     private let coordinator: AnovaBLECoordinator
     private let scanForDevices: @MainActor (TimeInterval) async throws -> [AnovaDiscoveredDevice]
-    private let defaults = UserDefaults.standard
+    private let defaults: UserDefaults
+    private let operationGate = CookerOperationGate()
     private var didScanOnLaunch = false
     private var pollTask: Task<Void, Never>?
     private var clockTask: Task<Void, Never>?
     private var autoStopTask: Task<Void, Never>?
     private var operationInFlight = false
     private var isUnitChangeInFlight = false
+    private var pendingConfirmation: PendingConfirmation?
+    private var handledUnexpectedDisconnect = false
     private var deviceAliases: [String: String]
     private var deviceCookState: [String: PersistedCookState]
     private var session: (any AnovaCookerSession)?
     @Published private var timerNow = Date()
 
     init(
-        scanForDevices: (@MainActor (TimeInterval) async throws -> [AnovaDiscoveredDevice])? = nil
+        scanForDevices: (@MainActor (TimeInterval) async throws -> [AnovaDiscoveredDevice])? = nil,
+        defaults: UserDefaults = .standard,
+        diagnostics: MiniDiagnosticsStore? = nil
     ) {
-        let diagnostics = MiniDiagnosticsStore()
+        let diagnostics = diagnostics ?? MiniDiagnosticsStore()
         let coordinator = AnovaBLECoordinator(diagnostics: diagnostics)
+        let debugEnabled = defaults.object(forKey: Self.debugEnabledStorageKey) as? Bool ?? false
 
         self.diagnostics = diagnostics
         self.coordinator = coordinator
+        self.defaults = defaults
         self.scanForDevices = scanForDevices ?? { timeout in
             try await coordinator.scan(timeout: timeout)
         }
         self.deviceAliases = defaults.dictionary(forKey: Self.aliasStorageKey) as? [String: String] ?? [:]
-        self.isDebugEnabled = defaults.object(forKey: Self.debugEnabledStorageKey) as? Bool ?? false
+        self.isDebugEnabled = debugEnabled
         self.menuBarShowsCurrentTemp = defaults.object(forKey: Self.menuBarShowsCurrentTempStorageKey) as? Bool ?? false
         self.menuBarShowsTimer = defaults.object(forKey: Self.menuBarShowsTimerStorageKey) as? Bool ?? false
         if let data = defaults.data(forKey: Self.cookStateStorageKey),
@@ -201,10 +166,21 @@ final class AppModel: ObservableObject {
         } else {
             self.deviceCookState = [:]
         }
+        diagnostics.setVerboseLoggingEnabled(debugEnabled)
         self.bleTraceText = diagnostics.renderedText
         diagnostics.onChange = { [weak self] text in
             self?.bleTraceText = text
         }
+        coordinator.onUnexpectedDisconnect = { [weak self] reason in
+            self?.handleUnexpectedDisconnect(reason)
+        }
+        recordApp(
+            "appLaunched",
+            details: [
+                "session": UUID().uuidString,
+                "version": Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "development",
+            ]
+        )
     }
 
     var menuBarIconName: String {
@@ -213,6 +189,10 @@ final class AppModel: ObservableObject {
 
     var scanButtonTitle: String {
         scanButtonState.title(isScanning: isScanning)
+    }
+
+    var diagnosticsLogURL: URL? {
+        diagnostics.logFileURL
     }
 
     var menuBarTitle: String {
@@ -349,7 +329,12 @@ final class AppModel: ObservableObject {
     }
 
     var canStopCook: Bool {
-        sessionState.enablesStopAction || observedState.snapshot?.isCooking == true
+        if let pendingConfirmation,
+           case .stopped = pendingConfirmation.expectation {
+            return false
+        }
+
+        return sessionState.enablesStopAction || observedState.snapshot?.isCooking == true
     }
 
     func setDebugEnabled(_ isEnabled: Bool) {
@@ -359,6 +344,7 @@ final class AppModel: ObservableObject {
 
         isDebugEnabled = isEnabled
         defaults.set(isEnabled, forKey: Self.debugEnabledStorageKey)
+        diagnostics.setVerboseLoggingEnabled(isEnabled)
         recordApp("debugModeChanged enabled=\(isEnabled)")
     }
 
@@ -412,6 +398,13 @@ final class AppModel: ObservableObject {
             let found = try await scanForDevices(5)
             devices = found
             scanButtonState.recordCompletedScan(trigger: trigger, foundDevices: !found.isEmpty)
+            recordApp(
+                "scanCompleted",
+                details: [
+                    "count": String(found.count),
+                    "trigger": trigger == .automatic ? "automatic" : "manual",
+                ]
+            )
 
             if selectedDeviceID == nil || !found.contains(where: { $0.id == selectedDeviceID }) {
                 selectedDeviceID = found.first?.id
@@ -437,8 +430,10 @@ final class AppModel: ObservableObject {
     }
 
     func connectSelectedDevice() async {
-        diagnostics.reset(.app, "connectRequested")
-        await perform("Connecting…") { [self] in
+        diagnostics.clearInMemory()
+        recordApp("connectRequested")
+        handledUnexpectedDisconnect = false
+        let connected = await perform("Connecting…") { [self] in
             guard let selectedDeviceID = self.selectedDeviceID else {
                 throw MiniBLEClientError.noSelection
             }
@@ -446,7 +441,7 @@ final class AppModel: ObservableObject {
             let session = try await self.coordinator.connect(to: selectedDeviceID)
             let device = session.device
             self.session = session
-            self.recordApp("connected", details: ["device": device.displayName])
+            self.recordApp("connected", details: ["family": device.family.rawValue])
             self.connectedDevice = device
             self.restoreCookState(for: device)
             self.syncAliasDraft()
@@ -460,21 +455,20 @@ final class AppModel: ObservableObject {
             self.startPolling()
             self.startClock()
         }
+
+        if !connected, session != nil {
+            session?.disconnect()
+            coordinator.disconnect()
+            clearConnectionState(status: "Connection failed.")
+        }
     }
 
     func disconnect() async {
         recordApp("disconnectRequested")
-        stopPolling()
-        stopClock()
+        handledUnexpectedDisconnect = false
         session?.disconnect()
-        session = nil
         coordinator.disconnect()
-        connectedDevice = nil
-        observedState.clearConnectionState()
-        _ = sessionState.apply(.disconnect)
-        restoreCookState(for: selectedOrConnectedDevice())
-        syncAliasDraft()
-        statusMessage = "Disconnected."
+        clearConnectionState(status: "Disconnected.")
     }
 
     func saveAlias() {
@@ -514,12 +508,17 @@ final class AppModel: ObservableObject {
         }
 
         isUnitChangeInFlight = true
+        var commandSent = false
 
-        await perform("Updating temperature unit…") { [self] in
+        let completed = await perform("Updating temperature unit…") { [self] in
+            self.beginCommand()
             self.recordApp("setUnit", details: ["unit": unit.rawValue])
             try await self.activeSession().setUnit(unit)
+            commandSent = true
             self.convertVisibleTemperatures(from: previousUnit, to: unit)
             self.selectedUnit = unit
+            let successMessage = "Temperature unit updated to \(unit.rawValue)."
+            let confirmed: Bool
             if let timerSeconds = self.sessionState.activeCookTimerSeconds {
                 let targetTemperature: Double
                 if let lastKnownTargetTemperature = self.observedState.lastKnownTargetTemperature {
@@ -529,48 +528,71 @@ final class AppModel: ObservableObject {
                 } else {
                     targetTemperature = try self.parseTargetTemperature()
                 }
-                try await self.syncDeviceState(
+                confirmed = try await self.syncDeviceState(
                     after: .running(
                         targetTemperature: targetTemperature,
                         timerSeconds: timerSeconds,
                         temperatureUnit: unit,
                         requireTimerRunningSignal: true
                     ),
-                    preservingTimerState: true
+                    preservingTimerState: true,
+                    successMessage: successMessage
                 )
             } else {
-                try await self.syncDeviceState(after: .temperatureUnit(unit), preservingTimerState: true)
+                confirmed = try await self.syncDeviceState(
+                    after: .temperatureUnit(unit),
+                    preservingTimerState: true,
+                    successMessage: successMessage
+                )
             }
-            self.statusMessage = "Temperature unit updated to \(unit.rawValue)."
+            self.statusMessage = confirmed ? successMessage : "Temperature unit command sent. Waiting for the cooker."
         }
 
+        if !completed, !commandSent {
+            selectedUnit = previousUnit
+        }
         isUnitChangeInFlight = false
     }
 
     func applySetTemperature() async {
         await perform("Setting target temperature…") { [self] in
+            self.beginCommand()
             let target = try self.parseTargetTemperature()
             self.recordApp(
                 "setTemperature",
                 details: ["target": "\(MiniFormat.temperature(target))\(self.selectedUnit.symbol)"]
             )
-            try await self.activeSession().setTemperature(target)
+            let session = try self.activeSession()
+            try await session.setTemperature(target)
             self.observedState.setTargetTemperature(target)
             self.persistCookState(targetTemperature: target)
+            let successMessage = "Target temperature set to \(MiniFormat.temperature(target))\(self.selectedUnit.symbol)."
             if let timerSeconds = self.sessionState.activeCookTimerSeconds {
-                try await self.syncDeviceState(
+                let confirmed = try await self.syncDeviceState(
                     after: .running(targetTemperature: target, timerSeconds: timerSeconds, requireTimerRunningSignal: true),
-                    preservingTimerState: true
+                    preservingTimerState: true,
+                    successMessage: successMessage
                 )
-            } else {
-                try await self.syncDeviceState(after: .targetTemperature(target))
+                self.statusMessage = confirmed ? successMessage : "Temperature command sent. Waiting for the cooker."
+                return
             }
-            self.statusMessage = "Target temperature set to \(MiniFormat.temperature(target))\(self.selectedUnit.symbol)."
+
+            guard session.device.family.supportsIdleTargetTemperatureReadback else {
+                self.statusMessage = "Temperature command sent."
+                return
+            }
+
+            let confirmed = try await self.syncDeviceState(
+                after: .targetTemperature(target),
+                successMessage: successMessage
+            )
+            self.statusMessage = confirmed ? successMessage : "Temperature command sent. Waiting for the cooker."
         }
     }
 
     func applyTimer() async {
         await perform("Updating timer…") { [self] in
+            self.beginCommand()
             let timer = try self.parseTimerSeconds()
             self.recordApp(
                 "setTimer",
@@ -593,11 +615,12 @@ final class AppModel: ObservableObject {
                 try await self.activeSession().startCook(setpoint: target, timerSeconds: timer)
                 self.observedState.setTargetTemperature(target)
                 _ = self.sessionState.apply(.timerUpdatedWhileCooking(timerSeconds: timer, now: Date()))
-                try await self.syncDeviceState(
+                let confirmed = try await self.syncDeviceState(
                     after: .running(targetTemperature: target, timerSeconds: timer, requireTimerRunningSignal: true),
-                    preservingTimerState: true
+                    preservingTimerState: true,
+                    successMessage: "Timer updated."
                 )
-                self.statusMessage = "Timer updated."
+                self.statusMessage = confirmed ? "Timer updated." : "Timer command sent. Waiting for the cooker."
             } else {
                 _ = self.sessionState.apply(.stageTimer(seconds: timer))
                 self.statusMessage = "Timer staged for the next cook."
@@ -609,6 +632,7 @@ final class AppModel: ObservableObject {
 
     func startCook() async {
         await perform("Starting cook…") { [self] in
+            self.beginCommand()
             let setpoint = try self.parseTargetTemperature()
             let timer = try self.parseTimerSeconds()
             self.recordApp(
@@ -622,23 +646,25 @@ final class AppModel: ObservableObject {
             self.observedState.setTargetTemperature(setpoint)
             _ = self.sessionState.apply(.startRequested(timerSeconds: timer, now: Date()))
             self.persistCookState(targetTemperature: setpoint)
-            try await self.syncDeviceState(
+            let confirmed = try await self.syncDeviceState(
                 after: .running(targetTemperature: setpoint, timerSeconds: timer, requireTimerRunningSignal: true),
-                preservingTimerState: true
+                preservingTimerState: true,
+                successMessage: "Cook started."
             )
-            self.statusMessage = "Start command sent."
+            self.statusMessage = confirmed ? "Cook started." : "Start command sent. Waiting for the cooker."
         }
     }
 
     func stopCook() async {
         await perform("Stopping cook…") { [self] in
+            self.beginCommand()
             let preservedTimerSeconds = configuredTimerSeconds()
             self.recordApp(
                 "stopCook",
                 details: ["preservedTimerSeconds": preservedTimerSeconds.map(String.init) ?? "nil"]
             )
-            try await self.executeStopCook(preservedTimerSeconds: preservedTimerSeconds, origin: .manual)
-            self.statusMessage = "Stop command sent."
+            let confirmed = try await self.executeStopCook(preservedTimerSeconds: preservedTimerSeconds, origin: .manual)
+            self.statusMessage = confirmed ? "Cook stopped." : "Stop command sent. Waiting for the cooker."
         }
     }
 
@@ -646,57 +672,49 @@ final class AppModel: ObservableObject {
         alias(for: device) ?? device.displayName
     }
 
-    private func perform(_ busyMessage: String, operation: @escaping () async throws -> Void) async {
-        guard !operationInFlight else {
-            return
+    @discardableResult
+    private func perform(
+        _ busyMessage: String,
+        userInitiated: Bool = true,
+        operation: @escaping @MainActor () async throws -> Void
+    ) async -> Bool {
+        guard !userInitiated || !operationInFlight else {
+            return false
         }
 
-        let stateSnapshot = captureOperationState()
-        operationInFlight = true
-        isBusy = true
+        if userInitiated {
+            operationInFlight = true
+            isBusy = true
+        }
         presentedError = nil
         let previousStatus = statusMessage
         statusMessage = busyMessage
 
         defer {
-            operationInFlight = false
-            isBusy = false
+            if userInitiated {
+                operationInFlight = false
+                isBusy = false
+            }
         }
 
         do {
-            try await operation()
+            try await operationGate.run(operation)
+            return true
         } catch {
+            if handledUnexpectedDisconnect {
+                return false
+            }
+
             diagnostics.record(.error, "operation", details: ["reason": error.localizedDescription])
-            restoreOperationState(stateSnapshot)
-            statusMessage = previousStatus
+            if let clientError = error as? MiniBLEClientError,
+               case .lowWater = clientError {
+                statusMessage = "The cooker needs more water."
+            } else {
+                statusMessage = previousStatus
+            }
             present(error)
+            return false
         }
-    }
-
-    private func captureOperationState() -> OperationStateSnapshot {
-        OperationStateSnapshot(
-            connectedDevice: connectedDevice,
-            observedState: observedState,
-            targetTemperatureText: targetTemperatureText,
-            timerMinutesText: timerMinutesText,
-            selectedUnit: selectedUnit,
-            sessionState: sessionState
-        )
-    }
-
-    private func restoreOperationState(_ state: OperationStateSnapshot) {
-        if connectedDevice?.id != state.connectedDevice?.id {
-            session?.disconnect()
-            session = nil
-            coordinator.disconnect()
-        }
-
-        connectedDevice = state.connectedDevice
-        observedState = state.observedState
-        targetTemperatureText = state.targetTemperatureText
-        timerMinutesText = state.timerMinutesText
-        selectedUnit = state.selectedUnit
-        sessionState = state.sessionState
     }
 
     private func refreshSnapshot(preservingTimerState: Bool = false) async throws {
@@ -724,7 +742,36 @@ final class AppModel: ObservableObject {
             targetTemperatureText = MiniFormat.temperature(target)
         }
 
-        let effect = sessionState.apply(.snapshotObserved(latestSnapshot, preservingPhase: preservingTimerState, now: Date()))
+        let now = Date()
+        let pending = pendingConfirmation
+        let confirmationMatched = pending?.expectation.matches(latestSnapshot) == true
+        let confirmationExpired = pending.map { now >= $0.expiresAt } == true
+        let shouldPreservePendingState = pending != nil && (!confirmationExpired || confirmationMatched)
+        let effect = sessionState.apply(
+            .snapshotObserved(
+                latestSnapshot,
+                preservingPhase: preservingTimerState || shouldPreservePendingState,
+                now: now
+            )
+        )
+
+        if let pending,
+           latestSnapshot.needsWater,
+           case .running = pending.expectation {
+            pendingConfirmation = nil
+            _ = sessionState.apply(.snapshotObserved(latestSnapshot, preservingPhase: false, now: now))
+            statusMessage = "The cooker needs more water."
+            diagnostics.record(.error, "lowWater")
+            present(MiniBLEClientError.lowWater)
+        } else if let pending, confirmationMatched {
+            completePendingConfirmation(pending)
+        } else if let pending, confirmationExpired {
+            pendingConfirmation = nil
+            statusMessage = "The cooker did not confirm the command. Check the cooker."
+            diagnostics.record(.error, "commandUnconfirmed", details: ["expected": pending.expectation.summary])
+            present(MiniBLEClientError.stateUnconfirmed("\(pending.expectation.summary). Check the cooker before you try again."))
+        }
+
         refreshTimerMinutesTextFromSession()
         handleSessionEffect(effect, snapshot: latestSnapshot)
         persistCookState(targetTemperature: latestSnapshot.targetTemperatureValue ?? observedState.lastKnownTargetTemperature)
@@ -767,9 +814,13 @@ final class AppModel: ObservableObject {
 
                 if !self.operationInFlight, self.connectedDevice != nil {
                     do {
-                        try await self.refreshSnapshot()
+                        try await self.operationGate.run {
+                            try await self.refreshSnapshot()
+                        }
                     } catch {
-                        self.present(error)
+                        if !self.handledUnexpectedDisconnect {
+                            self.present(error)
+                        }
                     }
                 }
             }
@@ -881,11 +932,16 @@ final class AppModel: ObservableObject {
             return
         }
 
-        deviceCookState[device.identifier] = PersistedCookState(
+        let nextState = PersistedCookState(
             targetTemperature: targetTemperature,
             timerState: Self.persistedTimerState(for: sessionState.persistedTimerState),
             lastCompletedAt: sessionState.lastCompletedAt
         )
+        guard deviceCookState[device.identifier] != nextState else {
+            return
+        }
+
+        deviceCookState[device.identifier] = nextState
 
         if let data = try? JSONEncoder().encode(deviceCookState) {
             defaults.set(data, forKey: Self.cookStateStorageKey)
@@ -897,7 +953,7 @@ final class AppModel: ObservableObject {
             details: [
                 "device": device.displayName,
                 "target": targetTemperature.map(MiniFormat.temperature) ?? "nil",
-                "timerState": String(describing: Self.persistedTimerState(for: sessionState.persistedTimerState)),
+                "timerState": String(describing: nextState.timerState),
                 "lastCompletedAt": sessionState.lastCompletedAt.map(MiniFormat.dateTime) ?? "nil",
             ]
         )
@@ -940,32 +996,36 @@ final class AppModel: ObservableObject {
         return sessionState.configuredTimerSeconds
     }
 
-    private func syncDeviceState(after expectedState: ExpectedDeviceState, preservingTimerState: Bool = false) async throws {
+    private func syncDeviceState(
+        after expectedState: CookerStateExpectation,
+        preservingTimerState: Bool = false,
+        successMessage: String,
+        preservedTimerSeconds: Int? = nil
+    ) async throws -> Bool {
         let session = try activeSession()
         guard session.supportsStrictStateConfirmation else {
             let snapshot = try await session.snapshot()
             applySnapshot(snapshot, preservingTimerState: preservingTimerState)
-            return
+            return true
         }
 
         let maxAttempts: Int
-        let pollInterval: Duration
 
         switch expectedState {
         case .stopped:
-            maxAttempts = 24
-            pollInterval = .milliseconds(350)
+            maxAttempts = 6
         case .temperatureUnit, .targetTemperature, .running:
-            maxAttempts = 10
-            pollInterval = .milliseconds(350)
+            maxAttempts = 4
         }
 
+        var lastSnapshot: CookerSnapshot?
         for attempt in 0..<maxAttempts {
             if attempt > 0 {
-                try await Task.sleep(for: pollInterval)
+                try await Task.sleep(for: .seconds(1))
             }
 
             let polledSnapshot = try await activeSession().snapshot()
+            lastSnapshot = polledSnapshot
             diagnostics.record(
                 .snapshot,
                 "syncAttempt",
@@ -977,18 +1037,72 @@ final class AppModel: ObservableObject {
                 ]
             )
 
+            if polledSnapshot.needsWater, case .running = expectedState {
+                applySnapshot(polledSnapshot)
+                throw MiniBLEClientError.lowWater
+            }
+
             if expectedState.matches(polledSnapshot) {
                 applySnapshot(polledSnapshot, preservingTimerState: preservingTimerState)
-                return
+                return true
             }
         }
 
-        throw MiniBLEClientError.stateUnconfirmed(expectedState.summary)
+        pendingConfirmation = PendingConfirmation(
+            expectation: expectedState,
+            successMessage: successMessage,
+            expiresAt: Date().addingTimeInterval(30),
+            preservedTimerSeconds: preservedTimerSeconds
+        )
+        recordApp("commandPending", details: ["expected": expectedState.summary])
+        if let lastSnapshot {
+            applySnapshot(lastSnapshot, preservingTimerState: true)
+        }
+        return false
     }
 
-    private enum StopOrigin {
+    private enum StopOrigin: Equatable {
         case manual
         case automaticAfterCompletion
+    }
+
+    private func beginCommand() {
+        pendingConfirmation = nil
+    }
+
+    private func completePendingConfirmation(_ pending: PendingConfirmation) {
+        pendingConfirmation = nil
+        if case .stopped = pending.expectation {
+            _ = sessionState.apply(.stopConfirmed(preservedTimerSeconds: pending.preservedTimerSeconds))
+        }
+        statusMessage = pending.successMessage
+        recordApp("commandConfirmed", details: ["expected": pending.expectation.summary])
+    }
+
+    private func handleUnexpectedDisconnect(_ reason: String) {
+        guard connectedDevice != nil else {
+            return
+        }
+
+        handledUnexpectedDisconnect = true
+        recordApp("connectionLost", details: ["reason": reason])
+        clearConnectionState(status: "Connection lost. Select Connect to reconnect.")
+        presentedError = .connectionLost(reason: reason)
+    }
+
+    private func clearConnectionState(status: String) {
+        stopPolling()
+        stopClock()
+        autoStopTask?.cancel()
+        autoStopTask = nil
+        pendingConfirmation = nil
+        session = nil
+        connectedDevice = nil
+        observedState.clearConnectionState()
+        _ = sessionState.apply(.disconnect)
+        restoreCookState(for: selectedOrConnectedDevice())
+        syncAliasDraft()
+        statusMessage = status
     }
 
     private func refreshTimerMinutesTextFromSession() {
@@ -1030,17 +1144,27 @@ final class AppModel: ObservableObject {
                 return
             }
 
-            await self.perform("Stopping cook after timer completion…") { [self] in
+            await self.perform("Stopping cook after timer completion…", userInitiated: false) { [self] in
+                self.beginCommand()
                 self.recordApp("autoStopAfterTimerCompletion")
-                try await self.executeStopCook(preservedTimerSeconds: nil, origin: .automaticAfterCompletion)
-                self.statusMessage = "Timer completed. Stop command sent."
+                let confirmed = try await self.executeStopCook(
+                    preservedTimerSeconds: nil,
+                    origin: .automaticAfterCompletion
+                )
+                self.statusMessage = confirmed
+                    ? "Timer completed. Cook stopped."
+                    : "Timer completed. Waiting for the cooker to stop."
             }
 
             self.autoStopTask = nil
         }
     }
 
-    private func executeStopCook(preservedTimerSeconds: Int?, origin: StopOrigin) async throws {
+    private func executeStopCook(preservedTimerSeconds: Int?, origin: StopOrigin) async throws -> Bool {
+        let session = try activeSession()
+        try await session.stopCook()
+        try? await session.clearAlarmIfSupported()
+
         switch origin {
         case .manual:
             _ = sessionState.apply(.stopRequested(preservedTimerSeconds: preservedTimerSeconds))
@@ -1048,14 +1172,19 @@ final class AppModel: ObservableObject {
             _ = sessionState.apply(.autoStopRequested)
         }
         refreshTimerMinutesTextFromSession()
-        let session = try activeSession()
-        try await session.stopCook()
-        try? await session.clearAlarmIfSupported()
         persistCookState(targetTemperature: observedState.lastKnownTargetTemperature)
-        try await syncDeviceState(after: .stopped)
-        _ = sessionState.apply(.stopConfirmed(preservedTimerSeconds: preservedTimerSeconds))
-        refreshTimerMinutesTextFromSession()
-        persistCookState(targetTemperature: observedState.lastKnownTargetTemperature)
+        let successMessage = origin == .manual ? "Cook stopped." : "Timer completed. Cook stopped."
+        let confirmed = try await syncDeviceState(
+            after: .stopped,
+            successMessage: successMessage,
+            preservedTimerSeconds: preservedTimerSeconds
+        )
+        if confirmed {
+            _ = sessionState.apply(.stopConfirmed(preservedTimerSeconds: preservedTimerSeconds))
+            refreshTimerMinutesTextFromSession()
+            persistCookState(targetTemperature: observedState.lastKnownTargetTemperature)
+        }
+        return confirmed
     }
 
     private static func persistedTimerState(for timerState: MiniRestoredTimerState) -> PersistedTimerState? {

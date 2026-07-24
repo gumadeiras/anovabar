@@ -2,9 +2,20 @@
 
 ## Unreleased
 
+## 0.1.5 - 2026-07-24
+
+### Fixes
+
+- Prevented idle Mini temperature commands from staying in a waiting state when the cooker does not provide target-temperature readback.
+- Prevented background refreshes from overlapping cooker commands.
+- Kept delayed Start and Stop results pending until the cooker confirms its state instead of reporting a false failure and restoring stale state.
+- Added a clear low-water message and immediate connection-loss recovery with reconnect guidance.
+
 ### Changes
 
 - The menu bar app now scans for nearby cookers when it starts. The button remains labeled **Scan** after an empty automatic scan.
+- The connected view now shows command progress below the cooker name.
+- Detailed Bluetooth logging now requires Debug Mode. Logs include full timestamps, rotate at 2 MB, and can be revealed in Finder.
 - Added a lean Homebrew source archive that preserves the CLI app icon while excluding menu bar app, docs, and branding assets from Homebrew downloads.
 - Updated release automation to the current checkout action and documented the local release wrapper.
 

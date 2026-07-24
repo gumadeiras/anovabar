@@ -20,10 +20,12 @@ final class OriginalBLEClient: NSObject {
 
     private var discoveredPeripherals: [UUID: DiscoveredPeripheral] = [:]
     private var connectedPeripheral: CBPeripheral?
+    private var expectedDisconnects: Set<UUID> = []
     private var commandCharacteristic: CBCharacteristic?
     private var responseBuffer = Data()
     private var detectedModel: OriginalCookerModel?
     private let diagnostics: MiniDiagnosticsStore
+    var onUnexpectedDisconnect: ((String) -> Void)?
 
     init(diagnostics: MiniDiagnosticsStore) {
         self.diagnostics = diagnostics
@@ -287,6 +289,7 @@ final class OriginalBLEClient: NSObject {
         peripheral.delegate = nil
 
         if peripheral.state == .connected || peripheral.state == .connecting {
+            expectedDisconnects.insert(peripheral.identifier)
             central.cancelPeripheralConnection(peripheral)
         }
     }
@@ -397,6 +400,7 @@ extension OriginalBLEClient: @preconcurrency CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        expectedDisconnects.remove(peripheral.identifier)
         connectedPeripheral = peripheral
         connectContinuation?.resume()
         connectContinuation = nil
@@ -418,10 +422,17 @@ extension OriginalBLEClient: @preconcurrency CBCentralManagerDelegate {
         error: (any Error)?
     ) {
         let reason = error?.localizedDescription ?? "The device disconnected."
+        let wasExpected = expectedDisconnects.remove(peripheral.identifier) != nil
         connectedPeripheral = nil
         commandCharacteristic = nil
         commandContinuation?.resume(throwing: MiniBLEClientError.disconnected(reason))
         commandContinuation = nil
+        guard !wasExpected else {
+            return
+        }
+
+        diagnostics.record(.error, "didDisconnect", details: ["reason": reason, "family": "original"])
+        onUnexpectedDisconnect?(reason)
     }
 }
 

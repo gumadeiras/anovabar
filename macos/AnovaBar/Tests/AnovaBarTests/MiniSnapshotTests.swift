@@ -3,6 +3,13 @@ import Testing
 
 struct MiniSnapshotTests {
     @Test
+    func miniDoesNotClaimIdleTargetTemperatureReadback() {
+        #expect(AnovaDeviceFamily.mini.supportsIdleTargetTemperatureReadback == false)
+        #expect(AnovaDeviceFamily.nano.supportsIdleTargetTemperatureReadback)
+        #expect(AnovaDeviceFamily.original.supportsIdleTargetTemperatureReadback)
+    }
+
+    @Test
     func matchesRunningCookWhenTimerPayloadOnlyShowsPositiveInitialSeconds() {
         let snapshot = MiniSnapshot(
             state: [
@@ -122,5 +129,25 @@ struct MiniSnapshotTests {
         #expect(snapshot.isCooking)
         #expect(snapshot.timerHasCompleted)
         #expect(snapshot.timerSemanticLabel == "completed timer")
+    }
+
+    @Test
+    func detectsLowWaterState() {
+        let snapshot = MiniSnapshot(
+            state: [
+                "mode": "lowWater",
+                "temperatureUnit": "C",
+            ],
+            currentTemperature: [
+                "current": 21.0,
+            ],
+            timer: [
+                "initial": 0,
+                "mode": "idle",
+            ]
+        ).cookerSnapshot
+
+        #expect(snapshot.needsWater)
+        #expect(!snapshot.isCooking)
     }
 }

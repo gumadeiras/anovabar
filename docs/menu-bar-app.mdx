@@ -47,6 +47,28 @@ If macOS prompts for Bluetooth access or pairing, allow it. Supported cookers ma
 
 If the first scan finds no cooker, use **Scan** to try again. The button changes to **Rescan** only after a manual scan finds no cooker.
 
+## Command status
+
+The app shows command progress below the connected cooker name. A command can stay in a waiting state while the cooker updates its Bluetooth state.
+
+An idle Mini does not report its target temperature through Bluetooth. After a target change, the app shows **Temperature command sent.** instead of waiting for state confirmation. The app still confirms Start and Stop from live cooker state.
+
+Do not repeat a Start or Stop command while the app shows that it is waiting. The app continues to check the cooker and reports when the state is confirmed. If the cooker does not confirm the command within 30 seconds, check the cooker before you try again.
+
+If the cooker reports a low-water state, add water before you start the cook again.
+
+If the Bluetooth connection ends, the app returns to the cooker picker. Select **Connect** to reconnect to the selected cooker, or use **Scan** if the cooker is no longer listed.
+
+## Diagnostics
+
+Open the connected cooker details and enable **Debug Mode** to show system information, Bluetooth events, and raw cooker data. Detailed Bluetooth data is recorded only while Debug Mode is on.
+
+Use **Reveal Log** to open the log in Finder. The log uses full timestamps and identifies each app launch. AnovaBar keeps the current log and one previous log, with a 2 MB limit for each file.
+
+The current log is stored at `~/Library/Application Support/AnovaBar/ble-trace.log`.
+
+The log can contain cooker state and Bluetooth payloads while Debug Mode is on. Review it before you share it.
+
 ## Why the app is separate
 
 The menu bar app is built separately from the Rust CLI so Bluetooth privacy permissions live in the app process that talks to CoreBluetooth.

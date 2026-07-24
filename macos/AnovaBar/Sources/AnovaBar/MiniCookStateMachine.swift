@@ -226,15 +226,18 @@ struct MiniCookSessionState: Equatable {
                 phase = Self.phase(from: snapshot, existingPhase: phase, now: now)
             }
 
-            if snapshot.isCooking, snapshot.timerHasCompleted {
-                if lastCompletedAt == nil {
-                    lastCompletedAt = now
+            if snapshot.isCooking {
+                commandState = .idle
+                if snapshot.timerHasCompleted {
+                    if lastCompletedAt == nil {
+                        lastCompletedAt = now
+                    }
+                    if !completionAutoStopRequested {
+                        completionAutoStopRequested = true
+                        return .autoStopAfterTimerCompletion
+                    }
                 }
-                if !completionAutoStopRequested {
-                    completionAutoStopRequested = true
-                    return .autoStopAfterTimerCompletion
-                }
-            } else if !snapshot.isCooking {
+            } else {
                 completionAutoStopRequested = false
                 commandState = .idle
             }

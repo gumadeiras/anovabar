@@ -19,10 +19,12 @@ final class NanoBLEClient: NSObject {
 
     private var discoveredPeripherals: [UUID: DiscoveredPeripheral] = [:]
     private var connectedPeripheral: CBPeripheral?
+    private var expectedDisconnects: Set<UUID> = []
     private var writeCharacteristic: CBCharacteristic?
     private var readCharacteristic: CBCharacteristic?
     private var responseBuffer = Data()
     private let diagnostics: MiniDiagnosticsStore
+    var onUnexpectedDisconnect: ((String) -> Void)?
 
     init(diagnostics: MiniDiagnosticsStore) {
         self.diagnostics = diagnostics
@@ -261,6 +263,7 @@ final class NanoBLEClient: NSObject {
         peripheral.delegate = nil
 
         if peripheral.state == .connected || peripheral.state == .connecting {
+            expectedDisconnects.insert(peripheral.identifier)
             central.cancelPeripheralConnection(peripheral)
         }
     }
@@ -311,6 +314,7 @@ extension NanoBLEClient: @preconcurrency CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        expectedDisconnects.remove(peripheral.identifier)
         connectedPeripheral = peripheral
         connectContinuation?.resume()
         connectContinuation = nil
@@ -332,6 +336,7 @@ extension NanoBLEClient: @preconcurrency CBCentralManagerDelegate {
         error: (any Error)?
     ) {
         let reason = error?.localizedDescription ?? "The device disconnected."
+        let wasExpected = expectedDisconnects.remove(peripheral.identifier) != nil
         connectedPeripheral = nil
         writeCharacteristic = nil
         readCharacteristic = nil
@@ -341,6 +346,12 @@ extension NanoBLEClient: @preconcurrency CBCentralManagerDelegate {
         activeCommand = nil
         exchangeContinuation?.resume(throwing: MiniBLEClientError.disconnected(reason))
         exchangeContinuation = nil
+        guard !wasExpected else {
+            return
+        }
+
+        diagnostics.record(.error, "didDisconnect", details: ["reason": reason, "family": "nano"])
+        onUnexpectedDisconnect?(reason)
     }
 }
 

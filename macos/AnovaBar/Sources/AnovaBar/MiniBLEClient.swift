@@ -9,6 +9,7 @@ enum MiniBLEClientError: LocalizedError {
     case disconnected(String)
     case invalidPayload(String)
     case operationAlreadyInFlight(String)
+    case lowWater
     case stateUnconfirmed(String)
 
     var errorDescription: String? {
@@ -27,8 +28,10 @@ enum MiniBLEClientError: LocalizedError {
             "The cooker returned invalid data: \(reason)"
         case .operationAlreadyInFlight(let operation):
             "Another Bluetooth \(operation) operation is already in flight."
+        case .lowWater:
+            "The cooker needs more water. Add water, then start the cook again."
         case .stateUnconfirmed(let reason):
-            "The cooker did not reach the expected state: \(reason)"
+            "The app could not confirm the cooker state: \(reason)"
         }
     }
 }
@@ -71,8 +74,10 @@ final class MiniBLEClient: NSObject {
 
     private var discoveredPeripherals: [UUID: DiscoveredPeripheral] = [:]
     private var connectedPeripheral: CBPeripheral?
+    private var expectedDisconnects: Set<UUID> = []
     private var characteristicsByUUID: [CBUUID: CBCharacteristic] = [:]
     private let diagnostics: MiniDiagnosticsStore
+    var onUnexpectedDisconnect: ((String) -> Void)?
 
     init(diagnostics: MiniDiagnosticsStore) {
         self.diagnostics = diagnostics
@@ -389,6 +394,7 @@ final class MiniBLEClient: NSObject {
         peripheral.delegate = nil
 
         if peripheral.state == .connected || peripheral.state == .connecting {
+            expectedDisconnects.insert(peripheral.identifier)
             central.cancelPeripheralConnection(peripheral)
         }
     }
@@ -515,6 +521,7 @@ extension MiniBLEClient: @preconcurrency CBCentralManagerDelegate {
     }
 
     func centralManager(_ central: CBCentralManager, didConnect peripheral: CBPeripheral) {
+        expectedDisconnects.remove(peripheral.identifier)
         connectedPeripheral = peripheral
         recordBLE("didConnect", details: ["peripheral": peripheral.identifier.uuidString])
         connectContinuation?.resume()
@@ -545,17 +552,16 @@ extension MiniBLEClient: @preconcurrency CBCentralManagerDelegate {
         error: (any Error)?
     ) {
         let reason = error?.localizedDescription ?? "The device disconnected."
-        diagnostics.record(
-            .error,
-            "didDisconnect",
-            details: [
-                "peripheral": peripheral.identifier.uuidString,
-                "reason": reason,
-            ]
-        )
+        let wasExpected = expectedDisconnects.remove(peripheral.identifier) != nil
         connectedPeripheral = nil
         characteristicsByUUID.removeAll()
         failPendingOperations(MiniBLEClientError.disconnected(reason))
+        guard !wasExpected else {
+            return
+        }
+
+        diagnostics.record(.error, "didDisconnect", details: ["reason": reason])
+        onUnexpectedDisconnect?(reason)
     }
 }
 

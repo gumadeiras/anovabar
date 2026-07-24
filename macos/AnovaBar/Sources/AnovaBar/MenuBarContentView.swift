@@ -144,8 +144,14 @@ struct MenuBarContentView: View {
         HStack(spacing: UI.panelSpacing) {
             brandIcon(size: 28, symbolSize: 14)
 
-            Text(model.connectedDeviceTitle)
-                .font(.system(size: 15, weight: .semibold))
+            VStack(alignment: .leading, spacing: 2) {
+                Text(model.connectedDeviceTitle)
+                    .font(.system(size: 15, weight: .semibold))
+                Text(model.statusMessage)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
 
             Spacer(minLength: 0)
 
@@ -277,6 +283,13 @@ struct MenuBarContentView: View {
             .actionButton()
 
             Spacer()
+
+            if model.isDebugEnabled, let logURL = model.diagnosticsLogURL {
+                Button("Reveal Log") {
+                    NSWorkspace.shared.activateFileViewerSelecting([logURL])
+                }
+                .actionButton()
+            }
         }
         .padding(.horizontal, 2)
     }
@@ -455,7 +468,7 @@ struct MenuBarContentView: View {
         VStack(alignment: .leading, spacing: 12) {
             settingToggleRow(
                 title: "Debug Mode",
-                subtitle: "Show System Info, BLE Trace, and BLE Payloads in the main view.",
+                subtitle: "Show diagnostics and record detailed Bluetooth data.",
                 isOn: Binding(
                     get: { model.isDebugEnabled },
                     set: { model.setDebugEnabled($0) }

@@ -15,6 +15,10 @@ enum AnovaDeviceFamily: String, Codable, Hashable {
             return "Original Precision Cooker"
         }
     }
+
+    var supportsIdleTargetTemperatureReadback: Bool {
+        self != .mini
+    }
 }
 
 struct AnovaDiscoveredDevice: Identifiable, Hashable {
@@ -50,6 +54,17 @@ struct CookerSnapshot {
     let state: JSONDictionary
     let currentTemperature: JSONDictionary
     let timer: JSONDictionary
+
+    var needsWater: Bool {
+        guard let stateMode else {
+            return false
+        }
+
+        return stateMode
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: " ", with: "")
+            == "lowwater"
+    }
 
     func matchesRunningCook(
         targetTemperature: Double,

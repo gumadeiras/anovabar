@@ -7,12 +7,20 @@ final class AnovaBLECoordinator {
     private let miniClient: MiniBLEClient
     private let originalClient: OriginalBLEClient
     private var discoveredDevices: [UUID: AnovaDiscoveredDevice] = [:]
+    var onUnexpectedDisconnect: ((String) -> Void)?
 
     init(diagnostics: MiniDiagnosticsStore) {
         self.diagnostics = diagnostics
         self.nanoClient = NanoBLEClient(diagnostics: diagnostics)
         self.miniClient = MiniBLEClient(diagnostics: diagnostics)
         self.originalClient = OriginalBLEClient(diagnostics: diagnostics)
+
+        let notifyDisconnect: (String) -> Void = { [weak self] reason in
+            self?.onUnexpectedDisconnect?(reason)
+        }
+        self.nanoClient.onUnexpectedDisconnect = notifyDisconnect
+        self.miniClient.onUnexpectedDisconnect = notifyDisconnect
+        self.originalClient.onUnexpectedDisconnect = notifyDisconnect
     }
 
     func scan(timeout seconds: TimeInterval = 5) async throws -> [AnovaDiscoveredDevice] {

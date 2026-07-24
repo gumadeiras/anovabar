@@ -6,10 +6,13 @@ struct ScanButtonStateTests {
     @MainActor
     func launchScanRunsOnceAndManualScanUpdatesTitle() async {
         var scanCount = 0
-        let model = AppModel { _ in
-            scanCount += 1
-            return []
-        }
+        let model = AppModel(
+            scanForDevices: { _ in
+                scanCount += 1
+                return []
+            },
+            diagnostics: MiniDiagnosticsStore(logFileURL: nil)
+        )
 
         await model.scanOnLaunchIfNeeded()
         await model.scanOnLaunchIfNeeded()
@@ -26,9 +29,12 @@ struct ScanButtonStateTests {
     @Test
     @MainActor
     func cancelledLaunchScanDoesNotPresentError() async {
-        let model = AppModel { _ in
-            throw CancellationError()
-        }
+        let model = AppModel(
+            scanForDevices: { _ in
+                throw CancellationError()
+            },
+            diagnostics: MiniDiagnosticsStore(logFileURL: nil)
+        )
 
         await model.scanOnLaunchIfNeeded()
 

@@ -50,6 +50,30 @@ struct MiniCookStateMachineTests {
     }
 
     @Test
+    func runningSnapshotClearsPendingCommandState() {
+        var state = MiniCookSessionState()
+        let now = Date(timeIntervalSince1970: 1_000)
+        _ = state.apply(.startRequested(timerSeconds: 0, now: now))
+        let snapshot = MiniSnapshot(
+            state: [
+                "mode": "cook",
+                "temperatureUnit": "C",
+            ],
+            currentTemperature: [
+                "current": 40.0,
+            ],
+            timer: [
+                "initial": 0,
+                "mode": "idle",
+            ]
+        )
+
+        _ = state.apply(.snapshotObserved(snapshot.cookerSnapshot, preservingPhase: true, now: now))
+
+        #expect(state.commandState == .idle)
+    }
+
+    @Test
     func completedTimerEmitsSingleAutoStopEffect() {
         var state = MiniCookSessionState(phase: .running(initialSeconds: 60, startedAt: Date(timeIntervalSince1970: 1_000)))
         let now = Date(timeIntervalSince1970: 1_060)
