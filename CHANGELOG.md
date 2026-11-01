@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fixes
+
+- Fixed known security advisories in bundled dependencies by updating `tokio` to 1.54.1 and `anyhow` to 1.0.104.
+
 ## 0.1.5 - 2026-07-24
 
 ### Fixes
